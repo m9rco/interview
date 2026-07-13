@@ -1,4 +1,416 @@
-// ==============================================================
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🚦 灰度发布 · Canary / BlueGreen / A-B / Shadow — 面试复习</title>
+<style>:root {
+  --bg: #ffffff;
+  --bg-2: #f6f8fa;
+  --bg-3: #eef1f4;
+  --fg: #1f2328;
+  --fg-dim: #57606a;
+  --fg-mute: #8b949e;
+  --link: #0969da;
+  --border: #d0d7de;
+  --border-soft: #e5e9ee;
+  --code-bg: #f6f8fa;
+  --code-fg: #24292f;
+  --accent: #0969da;
+  --warn-bg: #fff8c5;
+  --warn-border: #d4a72c;
+  --danger-bg: #ffebe9;
+  --danger-border: #ff8182;
+  --tip-bg: #ddf4ff;
+  --tip-border: #54aeff;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sidebar-w: 260px;
+}
+[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-2: #161b22;
+  --bg-3: #1c2128;
+  --fg: #e6edf3;
+  --fg-dim: #9198a1;
+  --fg-mute: #6e7681;
+  --link: #4493f8;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --code-bg: #161b22;
+  --code-fg: #e6edf3;
+  --accent: #4493f8;
+  --warn-bg: #3d2c00;
+  --warn-border: #9e6a03;
+  --danger-bg: #3c1519;
+  --danger-border: #ff8182;
+  --tip-bg: #0c2d6b;
+  --tip-border: #4493f8;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== Layout ===== */
+.doc {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-2);
+  padding: 20px 18px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  font-size: 13.5px;
+}
+.sidebar h2 {
+  font-size: 13px;
+  color: var(--fg-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 16px 0 6px;
+  padding: 0 8px;
+  font-weight: 600;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--fg);
+  padding: 0 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 12px;
+}
+.sidebar .brand small {
+  display: block;
+  font-weight: 400;
+  color: var(--fg-mute);
+  font-size: 12px;
+  margin-top: 3px;
+}
+.sidebar ul { list-style: none; padding: 0; margin: 0; }
+.sidebar li a {
+  display: block;
+  padding: 5px 8px;
+  color: var(--fg-dim);
+  border-radius: 4px;
+  border-left: 2px solid transparent;
+  line-height: 1.5;
+}
+.sidebar li a:hover { background: var(--bg-3); color: var(--fg); text-decoration: none; }
+.sidebar li a.active {
+  color: var(--link);
+  background: var(--bg-3);
+  border-left-color: var(--link);
+  font-weight: 600;
+}
+.sidebar li.sub a { padding-left: 22px; font-size: 12.5px; }
+.sidebar .tools {
+  margin-top: 20px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sidebar .tools button, .sidebar .tools a {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+.sidebar .tools button:hover, .sidebar .tools a:hover { border-color: var(--link); color: var(--link); }
+
+.content {
+  padding: 32px 48px 80px;
+  max-width: 900px;
+  min-width: 0;
+}
+
+/* mobile toggle */
+.menu-btn {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+/* ===== Typography ===== */
+.doc-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.doc-lede {
+  color: var(--fg-dim);
+  font-size: 15px;
+  margin: 0 0 32px;
+}
+
+.theme-block {
+  padding-top: 24px;
+  margin-bottom: 24px;
+  scroll-margin-top: 20px;
+}
+.theme-block + .theme-block {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 32px;
+}
+h2.theme-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  scroll-margin-top: 20px;
+}
+.tagline {
+  color: var(--fg-dim);
+  font-size: 13.5px;
+  margin: 0 0 20px;
+  font-style: italic;
+}
+
+h3.stage {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 28px 0 10px;
+  color: var(--fg);
+  scroll-margin-top: 20px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+h3.stage[data-stage="what-is"]::before     { content: '① '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="why-choose"]::before  { content: '② '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="what-broke"]::before  { content: '③ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="how-fixed"]::before   { content: '④ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="hero"]::before        { content: '☆ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="sources"]::before     { content: '📎 '; }
+
+h4 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 20px 0 8px;
+  color: var(--fg);
+}
+
+p { margin: 8px 0 12px; }
+ul, ol { padding-left: 24px; margin: 8px 0 14px; }
+li { margin: 3px 0; }
+li > p { margin: 4px 0; }
+strong { font-weight: 600; }
+em {
+  font-style: normal;
+  background: var(--warn-bg);
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* code */
+code {
+  font-family: var(--mono);
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 87%;
+  color: var(--code-fg);
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 12px 0;
+}
+pre code { background: none; border: none; padding: 0; color: var(--fg); font-size: 100%; }
+
+/* table */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0 18px;
+  font-size: 13.5px;
+  display: block;
+  overflow-x: auto;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: var(--bg-2); font-weight: 600; }
+tr:nth-child(even) td { background: var(--bg-2); }
+
+/* blockquote */
+blockquote {
+  border-left: 3px solid var(--border);
+  margin: 12px 0;
+  padding: 4px 14px;
+  color: var(--fg-dim);
+  background: var(--bg-2);
+  font-size: 14px;
+}
+
+/* callout */
+.callout {
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--link);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 14px 0;
+  background: var(--tip-bg);
+  font-size: 14px;
+}
+.callout.warn   { background: var(--warn-bg); border-left-color: var(--warn-border); }
+.callout.danger { background: var(--danger-bg); border-left-color: var(--danger-border); }
+.callout.tip    { background: var(--tip-bg); border-left-color: var(--tip-border); }
+.callout .title { font-weight: 600; margin-bottom: 4px; }
+
+/* kv */
+.kv {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 6px 14px;
+  margin: 8px 0 14px;
+  font-size: 14px;
+}
+.kv .k { color: var(--fg-dim); font-weight: 600; }
+
+/* ascii art */
+.ascii {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  padding: 12px 14px;
+  border-radius: 6px;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 24px 0; }
+
+.footer-note {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-mute);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Anchor links on headings */
+h2.theme-title, h3.stage {
+  position: relative;
+}
+h2.theme-title:hover .anchor,
+h3.stage:hover .anchor { opacity: 1; }
+.anchor {
+  position: absolute;
+  left: -18px;
+  top: 0;
+  color: var(--fg-mute);
+  opacity: 0;
+  text-decoration: none;
+  padding: 0 4px;
+  font-weight: 400;
+}
+.anchor:hover { color: var(--link); text-decoration: none; }
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .doc { grid-template-columns: 1fr; }
+  .menu-btn { display: block; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: 280px;
+    height: 100vh;
+    z-index: 90;
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .content { padding: 56px 20px 60px; }
+  .doc-title { font-size: 22px; }
+  h2.theme-title { font-size: 20px; }
+  h3.stage { font-size: 16px; }
+}
+
+@media (max-width: 500px) {
+  body { font-size: 14.5px; }
+  .content { padding: 56px 16px 60px; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv .k { margin-top: 8px; }
+}
+
+/* ===== Print ===== */
+@media print {
+  body { background: white; color: black; font-size: 11pt; line-height: 1.55; }
+  .sidebar, .menu-btn, .tools { display: none !important; }
+  .doc { display: block; }
+  .content { padding: 0; max-width: 100%; }
+  .theme-block { page-break-before: auto; break-before: auto; }
+  .theme-block + .theme-block { border-top: 1px solid #999; page-break-before: always; break-before: page; }
+  h2.theme-title { color: black; page-break-after: avoid; }
+  h3.stage { color: black !important; border-color: #999 !important; page-break-after: avoid; }
+  pre, code { background: #f4f4f4 !important; color: black !important; border: 1px solid #ccc !important; -webkit-print-color-adjust: exact; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+  table, th, td { border-color: #999 !important; color: black !important; }
+  th { background: #eee !important; color: black !important; }
+  .callout { border: 1px solid #999 !important; background: #f8f8f8 !important; color: black !important; }
+  .callout.warn { background: #fffbe6 !important; }
+  blockquote { border-color: #999 !important; background: #f8f8f8 !important; color: #333 !important; }
+  a { color: black; text-decoration: underline; }
+  .anchor { display: none !important; }
+}
+</style>
+</head>
+<body>
+
+<button id="menu-btn" class="menu-btn" aria-label="menu">☰</button>
+<div class="doc">
+  <aside id="sidebar" class="sidebar"></aside>
+  <main id="content" class="content"></main>
+</div>
+
+<script>// ==============================================================
 // Interview Review Guide — content data
 // Structure: THEMES[i] = { id, title, icon, tagline, hero?, stages, sources }
 //   stages = { "what-is": [...], "why-choose": [...], "what-broke": [...], "how-fixed": [...] }
@@ -1475,15 +1887,7 @@ window.__GUIDE_THEMES__ = [
         {
           kind: 'md',
           title: '两组正交维度：先把词分清楚',
-          body: '很多人把「同步/阻塞」混着说，其实是**两个正交维度**：\n' +
-            '- **同步 vs 异步**：调用方**要不要等结果**——同步就地拿返回值；异步先拿一个 future/callback，结果晚点通过回调/轮询/队列送来\n' +
-            '- **阻塞 vs 非阻塞**：调用**遇到 IO 未就绪时**做什么——阻塞就把当前线程挂起；非阻塞立刻返回 <code>EAGAIN</code>/<code>EWOULDBLOCK</code>\n\n' +
-            '**四象限**（以读 socket 为例）：\n' +
-            '- 同步阻塞：<code>read()</code> 默认；一直等到有数据\n' +
-            '- 同步非阻塞：<code>read()</code> + <code>O_NONBLOCK</code>；没数据立即返回，**要自己轮询**（浪费 CPU）\n' +
-            '- 异步阻塞（少见）：<code>select()</code>/<code>epoll_wait</code> 本身阻塞等**任一 fd 就绪**——严格说是「多路复用」，不是纯异步\n' +
-            '- **异步非阻塞**：<code>io_uring</code> / Windows IOCP / <code>aio_read</code>；提交请求后立刻走人，内核完成后通知/写完成队列——**才是真正的异步 IO**\n\n' +
-            '**Linux 的坑**：<code>epoll</code>+<code>O_NONBLOCK</code> 从来都**不是**异步 IO，是**同步非阻塞 + 就绪通知**——真正把「读」这个 syscall 交给内核异步做的，只有 <code>io_uring</code>（5.1+）和 POSIX AIO（少用）。',
+          body: '很多人把「同步/阻塞」混着说，其实是**两个正交维度**：\n- **同步 vs 异步**：调用方**要不要等结果**——同步就地拿返回值；异步先拿一个 future/callback，结果晚点通过回调/轮询/队列送来\n- **阻塞 vs 非阻塞**：调用**遇到 IO 未就绪时**做什么——阻塞就把当前线程挂起；非阻塞立刻返回 <code>EAGAIN</code>/<code>EWOULDBLOCK</code>\n\n**四象限**（以读 socket 为例）：\n- 同步阻塞：<code>read()</code> 默认；一直等到有数据\n- 同步非阻塞：<code>read()</code> + <code>O_NONBLOCK</code>；没数据立即返回，**要自己轮询**（浪费 CPU）\n- 异步阻塞（少见）：<code>select()</code>/<code>epoll_wait</code> 本身阻塞等**任一 fd 就绪**——严格说是「多路复用」，不是纯异步\n- **异步非阻塞**：<code>io_uring</code> / Windows IOCP / <code>aio_read</code>；提交请求后立刻走人，内核完成后通知/写完成队列——**才是真正的异步 IO**\n\n**Linux 的坑**：<code>epoll</code>+<code>O_NONBLOCK</code> 从来都**不是**异步 IO，是**同步非阻塞 + 就绪通知**——真正把「读」这个 syscall 交给内核异步做的，只有 <code>io_uring</code>（5.1+）和 POSIX AIO（少用）。',
         },
         {
           kind: 'ascii',
@@ -1520,16 +1924,7 @@ window.__GUIDE_THEMES__ = [
         {
           kind: 'md',
           title: 'Actor 与 CSP 的核心区别（面试爱问）',
-          body: '别只答「一个用 mailbox 一个用 channel」——**核心是耦合方向**：\n\n' +
-            '| 维度 | Actor | CSP |\n' +
-            '|---|---|---|\n' +
-            '| **通道所有权** | mailbox 属于**接收方 actor**，每个 actor 一个 | channel 是**独立第一类对象**，可传递、可关闭 |\n' +
-            '| **寻址方式** | **发送方要有目标 actor 的引用/PID** | 发送方只认识 channel，**不知道对面是谁** |\n' +
-            '| **发送语义** | **异步**：send 立刻返回；邮箱满时策略不同（Akka=丢/Erlang=阻塞） | **同步**（无缓冲）：发送方等接收方就位；带缓冲时才异步 |\n' +
-            '| **匹配语义** | 消息类型模式匹配 (<code>receive do ... end</code>) | select 多路 case，**同时可读/写多个 channel** |\n' +
-            '| **典型单元** | 每 actor 一个 goroutine 级别的进程 | goroutine + channel，channel 是显式对象 |\n\n' +
-            '**一句话**：Actor **知道给谁发**，CSP **知道往哪发**。\n\n' +
-            '**为什么 Go 是 CSP 不是 Actor**：Go 的 goroutine 没有内建 mailbox，也没有 PID；<code>ch &lt;- msg</code> 是**面向 channel** 的。虽然可以用 goroutine + 一个专属 chan 模拟 actor，但那是**在 CSP 之上实现 Actor**。',
+          body: '别只答「一个用 mailbox 一个用 channel」——**核心是耦合方向**：\n\n| 维度 | Actor | CSP |\n|---|---|---|\n| **通道所有权** | mailbox 属于**接收方 actor**，每个 actor 一个 | channel 是**独立第一类对象**，可传递、可关闭 |\n| **寻址方式** | **发送方要有目标 actor 的引用/PID** | 发送方只认识 channel，**不知道对面是谁** |\n| **发送语义** | **异步**：send 立刻返回；邮箱满时策略不同（Akka=丢/Erlang=阻塞） | **同步**（无缓冲）：发送方等接收方就位；带缓冲时才异步 |\n| **匹配语义** | 消息类型模式匹配 (<code>receive do ... end</code>) | select 多路 case，**同时可读/写多个 channel** |\n| **典型单元** | 每 actor 一个 goroutine 级别的进程 | goroutine + channel，channel 是显式对象 |\n\n**一句话**：Actor **知道给谁发**，CSP **知道往哪发**。\n\n**为什么 Go 是 CSP 不是 Actor**：Go 的 goroutine 没有内建 mailbox，也没有 PID；<code>ch &lt;- msg</code> 是**面向 channel** 的。虽然可以用 goroutine + 一个专属 chan 模拟 actor，但那是**在 CSP 之上实现 Actor**。',
         },
         {
           kind: 'ascii',
@@ -1551,11 +1946,7 @@ window.__GUIDE_THEMES__ = [
         {
           kind: 'md',
           title: 'Reactor 详解 · 三种变体',
-          body: '**Reactor = 事件多路复用（epoll/kqueue）+ 就绪回调派发**——它是**同步**模型（IO 还是自己 read/write，只是内核只在就绪时喊你）。\n\n' +
-            '- **单 Reactor 单线程**（Redis 6 之前的主流）：一个线程跑 event loop + 处理所有回调；简单，但一个慢回调堵住整个进程\n' +
-            '- **单 Reactor 多线程**（早期 Netty）：Reactor 只做 accept + read；业务处理丢线程池；缺点是**每个连接的读写还在 Reactor 线程**，读写多时仍打爆\n' +
-            '- **主从 Reactor**（Nginx / Netty 主流 / Redis 6+ IO 多线程）：**一个 mainReactor 负责 accept**；分派到多个 subReactor（每个绑一个线程），subReactor 负责各自连接的整个 IO 生命周期；业务再丢 worker 池\n\n' +
-            '**Proactor 与 Reactor 的差别**在**是谁 read**：Reactor 是「就绪 → 你去 read」；Proactor 是「你先说要 read 到某 buffer → 内核搞完 → 通知你 buffer 好了」。Linux 上 **io_uring** 让 Proactor 真正落地。',
+          body: '**Reactor = 事件多路复用（epoll/kqueue）+ 就绪回调派发**——它是**同步**模型（IO 还是自己 read/write，只是内核只在就绪时喊你）。\n\n- **单 Reactor 单线程**（Redis 6 之前的主流）：一个线程跑 event loop + 处理所有回调；简单，但一个慢回调堵住整个进程\n- **单 Reactor 多线程**（早期 Netty）：Reactor 只做 accept + read；业务处理丢线程池；缺点是**每个连接的读写还在 Reactor 线程**，读写多时仍打爆\n- **主从 Reactor**（Nginx / Netty 主流 / Redis 6+ IO 多线程）：**一个 mainReactor 负责 accept**；分派到多个 subReactor（每个绑一个线程），subReactor 负责各自连接的整个 IO 生命周期；业务再丢 worker 池\n\n**Proactor 与 Reactor 的差别**在**是谁 read**：Reactor 是「就绪 → 你去 read」；Proactor 是「你先说要 read 到某 buffer → 内核搞完 → 通知你 buffer 好了」。Linux 上 **io_uring** 让 Proactor 真正落地。',
         },
         {
           kind: 'ascii',
@@ -1572,63 +1963,29 @@ window.__GUIDE_THEMES__ = [
         {
           kind: 'md',
           title: 'Event Loop 与「宏任务/微任务」（前端 & Node）',
-          body: '**Event Loop = 单线程 + 队列 + 事件驱动**，本质是最简单的 Reactor 变体。\n\n' +
-            '**Node.js 阶段（每轮 tick 顺序）**：\n' +
-            '1. **Timers**：到期的 <code>setTimeout</code>/<code>setInterval</code>\n' +
-            '2. **Pending callbacks**：延迟到下轮的 IO 回调\n' +
-            '3. **Idle/Prepare**：内部\n' +
-            '4. **Poll**：<code>epoll_wait</code> 收 IO；这里可能阻塞\n' +
-            '5. **Check**：<code>setImmediate</code> 回调\n' +
-            '6. **Close callbacks**：<code>socket.on(\'close\')</code> 等\n\n' +
-            '每一步之间**清空 microtask 队列**（<code>process.nextTick</code>、Promise then）。\n\n' +
-            '**浏览器**：宏任务（script、setTimeout、MessageChannel、UI 事件）+ 微任务（Promise、MutationObserver、queueMicrotask）；**每次宏任务结束都清空所有微任务**——所以微任务饿死宏任务是常见 bug（无限 <code>Promise.resolve().then(...)</code>）。',
+          body: '**Event Loop = 单线程 + 队列 + 事件驱动**，本质是最简单的 Reactor 变体。\n\n**Node.js 阶段（每轮 tick 顺序）**：\n1. **Timers**：到期的 <code>setTimeout</code>/<code>setInterval</code>\n2. **Pending callbacks**：延迟到下轮的 IO 回调\n3. **Idle/Prepare**：内部\n4. **Poll**：<code>epoll_wait</code> 收 IO；这里可能阻塞\n5. **Check**：<code>setImmediate</code> 回调\n6. **Close callbacks**：<code>socket.on(\'close\')</code> 等\n\n每一步之间**清空 microtask 队列**（<code>process.nextTick</code>、Promise then）。\n\n**浏览器**：宏任务（script、setTimeout、MessageChannel、UI 事件）+ 微任务（Promise、MutationObserver、queueMicrotask）；**每次宏任务结束都清空所有微任务**——所以微任务饿死宏任务是常见 bug（无限 <code>Promise.resolve().then(...)</code>）。',
         },
         {
           kind: 'md',
           title: 'SEDA / Pipeline / Half-Sync-Half-Async',
-          body: '- **SEDA (Staged Event-Driven Architecture)**：Matt Welsh 2001 论文；把服务拆成多个 stage，每 stage 独立线程池 + 队列，观察队列长度**自动扩缩容 stage 线程数**——早期 Cassandra 用过。缺点是队列多、上下文切换密\n' +
-            '- **Pipeline**：类似 SEDA 但强调**顺序**和**背压**——上游快下游慢时，channel 满会阻塞上游；Netty 的 <code>ChannelPipeline</code> 是最经典实现\n' +
-            '- **Half-Sync/Half-Async**：ACE 框架总结的模式——**IO 层做异步/事件驱动**（收包），**worker 层做同步阻塞**（业务）。中间用队列解耦。**Envoy** 早期版本本质就是这个：libevent 收包 + worker 线程池处理请求',
+          body: '- **SEDA (Staged Event-Driven Architecture)**：Matt Welsh 2001 论文；把服务拆成多个 stage，每 stage 独立线程池 + 队列，观察队列长度**自动扩缩容 stage 线程数**——早期 Cassandra 用过。缺点是队列多、上下文切换密\n- **Pipeline**：类似 SEDA 但强调**顺序**和**背压**——上游快下游慢时，channel 满会阻塞上游；Netty 的 <code>ChannelPipeline</code> 是最经典实现\n- **Half-Sync/Half-Async**：ACE 框架总结的模式——**IO 层做异步/事件驱动**（收包），**worker 层做同步阻塞**（业务）。中间用队列解耦。**Envoy** 早期版本本质就是这个：libevent 收包 + worker 线程池处理请求',
         },
         {
           kind: 'md',
           title: 'Master-Worker / Leader-Follower',
-          body: '- **Master-Worker (Prefork)**：Nginx / Gunicorn / Apache prefork——**Master 只做管理**（信号、配置 reload、worker 存活），**Workers 各自 accept**（Linux 3.9+ <code>SO_REUSEPORT</code> 内核负载均衡；老内核靠 <code>accept</code> mutex 或惊群）。**故障隔离好**（一个 worker crash 不影响别的），**内存共享靠 fork 时的 CoW**\n' +
-            '- **Leader-Follower**：ACE 提出的高性能模式——**只有 leader 线程持锁 <code>epoll_wait</code>**；收到事件后**升级为 worker**、把 leader 角色交给一个 follower；处理完事件后回队排 follower。避免了「多个线程同时 <code>epoll_wait</code>」的惊群和上下文切换。适合**极短 CPU 处理**的高并发场景',
+          body: '- **Master-Worker (Prefork)**：Nginx / Gunicorn / Apache prefork——**Master 只做管理**（信号、配置 reload、worker 存活），**Workers 各自 accept**（Linux 3.9+ <code>SO_REUSEPORT</code> 内核负载均衡；老内核靠 <code>accept</code> mutex 或惊群）。**故障隔离好**（一个 worker crash 不影响别的），**内存共享靠 fork 时的 CoW**\n- **Leader-Follower**：ACE 提出的高性能模式——**只有 leader 线程持锁 <code>epoll_wait</code>**；收到事件后**升级为 worker**、把 leader 角色交给一个 follower；处理完事件后回队排 follower。避免了「多个线程同时 <code>epoll_wait</code>」的惊群和上下文切换。适合**极短 CPU 处理**的高并发场景',
         },
         {
           kind: 'md',
           title: 'Pub/Sub · Fan-out',
-          body: '**Pub/Sub 与 Actor/CSP 的差别**在**寻址粒度**：\n' +
-            '- Actor 是 **1 → 1 定向**（有 PID）\n' +
-            '- CSP channel 是 **N → M 匿名**\n' +
-            '- Pub/Sub 是 **1 → N 广播**：发布者只管往 topic 写，订阅者自主拉/推\n\n' +
-            '**关键实现分野**：\n' +
-            '- **消息中间件式**（Kafka）：**日志式**——消息按 offset 存磁盘，订阅者独立维护 offset，可**回放**\n' +
-            '- **总线式**（Redis Pub/Sub）：**内存瞬时**——订阅前发布的消息**丢失**，无历史\n' +
-            '- **总线增强版**（Redis Streams / RabbitMQ）：既有历史又能广播，靠 consumer group 分工消费',
+          body: '**Pub/Sub 与 Actor/CSP 的差别**在**寻址粒度**：\n- Actor 是 **1 → 1 定向**（有 PID）\n- CSP channel 是 **N → M 匿名**\n- Pub/Sub 是 **1 → N 广播**：发布者只管往 topic 写，订阅者自主拉/推\n\n**关键实现分野**：\n- **消息中间件式**（Kafka）：**日志式**——消息按 offset 存磁盘，订阅者独立维护 offset，可**回放**\n- **总线式**（Redis Pub/Sub）：**内存瞬时**——订阅前发布的消息**丢失**，无历史\n- **总线增强版**（Redis Streams / RabbitMQ）：既有历史又能广播，靠 consumer group 分工消费',
         },
       ],
       'why-choose': [
         {
           kind: 'md',
           title: '选型公式：先看状态耦合，再看 IO 密集度',
-          body: '```\n' +
-            '状态强耦合（同一玩家/同一订单多条消息串行）？\n' +
-            '  ├─ 是 → Actor / 单线程 event loop（每 actor 独占状态）\n' +
-            '  └─ 否 →\n' +
-            '        IO 密集？\n' +
-            '          ├─ 是 → CSP / Reactor（协程 + 多路复用）\n' +
-            '          └─ 否 → 线程池 + 分段锁（CPU 密集）\n' +
-            '\n' +
-            '需要跨节点？（分布式）\n' +
-            '  ├─ 是 → Actor（Erlang/Akka Cluster） 或 消息队列 + 无状态服务\n' +
-            '  └─ 否 → 单机上述模型即可\n' +
-            '\n' +
-            '要不要背压？\n' +
-            '  ├─ 要 → CSP（channel 阻塞）/ Pipeline / Reactive Streams（onBackpressure*）\n' +
-            '  └─ 不要 → Actor 邮箱容忍溢出策略 / Pub/Sub 丢消息\n' +
-            '```',
+          body: '```\n状态强耦合（同一玩家/同一订单多条消息串行）？\n  ├─ 是 → Actor / 单线程 event loop（每 actor 独占状态）\n  └─ 否 →\n        IO 密集？\n          ├─ 是 → CSP / Reactor（协程 + 多路复用）\n          └─ 否 → 线程池 + 分段锁（CPU 密集）\n\n需要跨节点？（分布式）\n  ├─ 是 → Actor（Erlang/Akka Cluster） 或 消息队列 + 无状态服务\n  └─ 否 → 单机上述模型即可\n\n要不要背压？\n  ├─ 要 → CSP（channel 阻塞）/ Pipeline / Reactive Streams（onBackpressure*）\n  └─ 不要 → Actor 邮箱容忍溢出策略 / Pub/Sub 丢消息\n```',
         },
         {
           kind: 'kv',
@@ -1648,143 +2005,76 @@ window.__GUIDE_THEMES__ = [
         {
           kind: 'md',
           title: '为什么游戏用 Actor / 单线程 tick，不用协程池？',
-          body: '面试高频对答：\n\n' +
-            '**问**：为什么游戏后台不像互联网那样用协程池打 DB？\n' +
-            '**答**：\n' +
-            '1. **状态强耦合**：一个玩家的血量、buff、背包是**共享可变状态**；协程 + 锁比单线程 tick 慢（锁争用 + cache 冷）；单 tick 天生串行\n' +
-            '2. **AOE / 联动**：一次 AOE 可能改 100 个玩家状态，跨协程锁**排列组合就是死锁的温床**\n' +
-            '3. **确定性**：同 seed 同输入 → 同结果——录像回放、跨服校验都靠这个；协程调度非确定，无法保证\n' +
-            '4. **瓶颈在 CPU 计算**：技能公式、寻路、AI，不是 IO；**协程收益不大**\n\n' +
-            '**Actor 化拆分**：世界服→场景 actor→玩家 actor；跨场景交互（组队邀请、跨服匹配）走消息 + 中央路由。',
+          body: '面试高频对答：\n\n**问**：为什么游戏后台不像互联网那样用协程池打 DB？\n**答**：\n1. **状态强耦合**：一个玩家的血量、buff、背包是**共享可变状态**；协程 + 锁比单线程 tick 慢（锁争用 + cache 冷）；单 tick 天生串行\n2. **AOE / 联动**：一次 AOE 可能改 100 个玩家状态，跨协程锁**排列组合就是死锁的温床**\n3. **确定性**：同 seed 同输入 → 同结果——录像回放、跨服校验都靠这个；协程调度非确定，无法保证\n4. **瓶颈在 CPU 计算**：技能公式、寻路、AI，不是 IO；**协程收益不大**\n\n**Actor 化拆分**：世界服→场景 actor→玩家 actor；跨场景交互（组队邀请、跨服匹配）走消息 + 中央路由。',
         },
         {
           kind: 'md',
           title: 'Reactor 家族选型',
-          body: '- **单 Reactor 单线程**：连接数 <1w、业务极轻——**Redis 5** 就够；一个 event loop 干完所有\n' +
-            '- **单 Reactor 多线程**：**不推荐**——read/write 仍在 event loop 线程，容易撞瓶颈\n' +
-            '- **主从 Reactor**：**通用生产选择**——Netty/Nginx/Envoy 都是；连接数几十万无压力\n' +
-            '- **Reactor + IO 多线程**（Redis 6）：只把网络 IO 拆多线程，**命令执行仍单线程**——保原子性又提高吞吐\n' +
-            '- **Proactor (io_uring)**：**新贵**——Linux 5.1+，把系统调用批量提交、批量收结果，减少 syscall 次数；**ScyllaDB / Redpanda / Envoy 新版**都在用',
+          body: '- **单 Reactor 单线程**：连接数 <1w、业务极轻——**Redis 5** 就够；一个 event loop 干完所有\n- **单 Reactor 多线程**：**不推荐**——read/write 仍在 event loop 线程，容易撞瓶颈\n- **主从 Reactor**：**通用生产选择**——Netty/Nginx/Envoy 都是；连接数几十万无压力\n- **Reactor + IO 多线程**（Redis 6）：只把网络 IO 拆多线程，**命令执行仍单线程**——保原子性又提高吞吐\n- **Proactor (io_uring)**：**新贵**——Linux 5.1+，把系统调用批量提交、批量收结果，减少 syscall 次数；**ScyllaDB / Redpanda / Envoy 新版**都在用',
         },
         {
           kind: 'md',
           title: '同步 vs 异步 API 设计',
-          body: '- **同步 API**（<code>String read()</code>）：调用方好写；但**要么阻塞线程**（浪费），**要么让调用方跑在协程里**（Go 天然做到；Java 靠虚拟线程 Loom 补）\n' +
-            '- **异步 API**（<code>Future&lt;String&gt; readAsync()</code> / <code>callback(err, data)</code>）：不阻塞线程；但要处理 **callback hell**、**取消传播**、**背压**\n' +
-            '- **async/await**：语法糖——把异步写成同步风格；底下仍是状态机 + 回调\n' +
-            '- **响应式（Reactor Pattern in Reactive Streams / RxJava）**：**Publisher/Subscriber + 背压 request(n)**——比裸 callback 多了操作符和背压协议',
+          body: '- **同步 API**（<code>String read()</code>）：调用方好写；但**要么阻塞线程**（浪费），**要么让调用方跑在协程里**（Go 天然做到；Java 靠虚拟线程 Loom 补）\n- **异步 API**（<code>Future&lt;String&gt; readAsync()</code> / <code>callback(err, data)</code>）：不阻塞线程；但要处理 **callback hell**、**取消传播**、**背压**\n- **async/await**：语法糖——把异步写成同步风格；底下仍是状态机 + 回调\n- **响应式（Reactor Pattern in Reactive Streams / RxJava）**：**Publisher/Subscriber + 背压 request(n)**——比裸 callback 多了操作符和背压协议',
         },
       ],
       'what-broke': [
         {
           kind: 'md',
           title: 'Reactor 事件循环慢回调堵住',
-          body: '- **典型症状**：一个 handler 里跑了 10ms 的 JSON 解析或加密——**整个 event loop 阻塞**，连接超时雪崩\n' +
-            '- **根因**：Reactor 的核心假设是「所有回调都很快」；破坏就完蛋\n' +
-            '- **填坑**：\n' +
-            '  1. CPU 密集操作**扔独立线程池**（Netty 的 <code>DefaultEventExecutorGroup</code>、Node 的 <code>worker_threads</code>）\n' +
-            '  2. **切分大回调**——用 <code>setImmediate</code>/<code>setTimeout(0)</code> 让 loop 有喘息\n' +
-            '  3. 观测 event loop 延迟（Node 的 <code>perf_hooks.monitorEventLoopDelay</code>、Netty 的 <code>DefaultEventLoop</code> 指标），**慢回调 P99 > 1ms 就是警报**',
+          body: '- **典型症状**：一个 handler 里跑了 10ms 的 JSON 解析或加密——**整个 event loop 阻塞**，连接超时雪崩\n- **根因**：Reactor 的核心假设是「所有回调都很快」；破坏就完蛋\n- **填坑**：\n  1. CPU 密集操作**扔独立线程池**（Netty 的 <code>DefaultEventExecutorGroup</code>、Node 的 <code>worker_threads</code>）\n  2. **切分大回调**——用 <code>setImmediate</code>/<code>setTimeout(0)</code> 让 loop 有喘息\n  3. 观测 event loop 延迟（Node 的 <code>perf_hooks.monitorEventLoopDelay</code>、Netty 的 <code>DefaultEventLoop</code> 指标），**慢回调 P99 > 1ms 就是警报**',
         },
         {
           kind: 'md',
           title: 'Actor 邮箱堆积',
-          body: '- **场景**：一个热点 actor（大主播/公会 boss）每秒收 10w 消息，处理只 1w/s → 邮箱疯长 → 内存 OOM\n' +
-            '- **填坑**：\n' +
-            '  1. **有界邮箱**：Akka <code>bounded-mailbox</code>、Erlang <code>process_flag(message_queue_data)</code>——满了走策略：**丢**、**降级**、**背压 (让发送方阻塞)**\n' +
-            '  2. **分片**：热点 actor 一拆多——按玩家 ID hash 分 N 个子 actor，前面加路由 actor\n' +
-            '  3. **优先队列**：区分「必处理」和「可丢弃」（心跳可丢，交易必处理）\n' +
-            '  4. **背压反馈**：让上游看到邮箱长度，主动降速',
+          body: '- **场景**：一个热点 actor（大主播/公会 boss）每秒收 10w 消息，处理只 1w/s → 邮箱疯长 → 内存 OOM\n- **填坑**：\n  1. **有界邮箱**：Akka <code>bounded-mailbox</code>、Erlang <code>process_flag(message_queue_data)</code>——满了走策略：**丢**、**降级**、**背压 (让发送方阻塞)**\n  2. **分片**：热点 actor 一拆多——按玩家 ID hash 分 N 个子 actor，前面加路由 actor\n  3. **优先队列**：区分「必处理」和「可丢弃」（心跳可丢，交易必处理）\n  4. **背压反馈**：让上游看到邮箱长度，主动降速',
         },
         {
           kind: 'md',
           title: 'CSP channel 泄漏与死锁',
-          body: '- **场景 1（泄漏）**：goroutine 阻塞在无缓冲 channel 上永不返回——因为发送方已崩溃/超时退出，接收方永远等\n' +
-            '  - 修复：**永远配 <code>context.Context</code>**：<code>select { case v := &lt;-ch: ... case &lt;-ctx.Done(): return }</code>\n' +
-            '- **场景 2（死锁）**：A 写 <code>ch1</code> 等 B 读，B 写 <code>ch2</code> 等 A 读，两边**同时无缓冲发送**\n' +
-            '  - 修复：**发送方之间约定顺序**，或用**带缓冲 channel**，或用 <code>select</code> 加 <code>default</code> 兜底\n' +
-            '- **场景 3（closed panic）**：往已关闭的 channel 写 → panic\n' +
-            '  - 修复：**发送方 close**（唯一发送方原则）；接收方用 <code>v, ok := &lt;-ch</code> 检查关闭',
+          body: '- **场景 1（泄漏）**：goroutine 阻塞在无缓冲 channel 上永不返回——因为发送方已崩溃/超时退出，接收方永远等\n  - 修复：**永远配 <code>context.Context</code>**：<code>select { case v := &lt;-ch: ... case &lt;-ctx.Done(): return }</code>\n- **场景 2（死锁）**：A 写 <code>ch1</code> 等 B 读，B 写 <code>ch2</code> 等 A 读，两边**同时无缓冲发送**\n  - 修复：**发送方之间约定顺序**，或用**带缓冲 channel**，或用 <code>select</code> 加 <code>default</code> 兜底\n- **场景 3（closed panic）**：往已关闭的 channel 写 → panic\n  - 修复：**发送方 close**（唯一发送方原则）；接收方用 <code>v, ok := &lt;-ch</code> 检查关闭',
         },
         {
           kind: 'md',
           title: 'Event Loop starvation（微任务饿死宏任务）',
-          body: '- **场景**：<code>Promise.resolve().then(loop)</code> 里递归 <code>then</code>——微任务队列永远有活，宏任务（timer / IO）永远等不到\n' +
-            '- **表现**：Node 服务响应停滞，但 CPU 100%\n' +
-            '- **修复**：**长循环用 <code>setImmediate</code> 让出**（进宏任务队列）；或用 <code>await new Promise(r =&gt; setImmediate(r))</code>\n' +
-            '- **通用规则**：微任务只做**极短同步收尾**，别放实际业务',
+          body: '- **场景**：<code>Promise.resolve().then(loop)</code> 里递归 <code>then</code>——微任务队列永远有活，宏任务（timer / IO）永远等不到\n- **表现**：Node 服务响应停滞，但 CPU 100%\n- **修复**：**长循环用 <code>setImmediate</code> 让出**（进宏任务队列）；或用 <code>await new Promise(r =&gt; setImmediate(r))</code>\n- **通用规则**：微任务只做**极短同步收尾**，别放实际业务',
         },
         {
           kind: 'md',
           title: 'Master-Worker 惊群与不均衡',
-          body: '- **老内核惊群**：多 worker 共享 listen fd，一个连接来 → **所有 worker 被唤醒**，只有一个成功 <code>accept</code>，其它白醒\n' +
-            '  - 现代 Linux 3.9+：**<code>SO_REUSEPORT</code>** 每 worker 独立 listen，内核层负载均衡；Nginx <code>reuseport on;</code>\n' +
-            '- **worker 不均衡**：某 worker 卡在慢连接，其它闲——观察 <code>nginx status</code> / prometheus 每 worker 的 accept 数\n' +
-            '  - 填坑：短连接场景 <code>SO_REUSEPORT</code> 天然均衡；长连接得配**主动断连或 conn 均衡**（HAProxy/L4 层）',
+          body: '- **老内核惊群**：多 worker 共享 listen fd，一个连接来 → **所有 worker 被唤醒**，只有一个成功 <code>accept</code>，其它白醒\n  - 现代 Linux 3.9+：**<code>SO_REUSEPORT</code>** 每 worker 独立 listen，内核层负载均衡；Nginx <code>reuseport on;</code>\n- **worker 不均衡**：某 worker 卡在慢连接，其它闲——观察 <code>nginx status</code> / prometheus 每 worker 的 accept 数\n  - 填坑：短连接场景 <code>SO_REUSEPORT</code> 天然均衡；长连接得配**主动断连或 conn 均衡**（HAProxy/L4 层）',
         },
         {
           kind: 'md',
           title: 'Pub/Sub 消息丢失与顺序',
-          body: '- **Redis Pub/Sub 丢消息**：订阅者断连再连，中间发布的**没了**——因为 Redis Pub/Sub 是**内存瞬时广播**，无历史\n' +
-            '  - 填坑：换 **Redis Streams**（有 offset）或 **Kafka**\n' +
-            '- **Kafka 分区顺序 vs Topic 顺序**：**同一 partition 有序，跨 partition 无序**——按业务 key hash 到同一 partition（同用户订单打一 partition）\n' +
-            '- **Consumer group 重复消费**：consumer crash 前没 commit offset → rebalance 后新 consumer 从上次 commit 处重放\n' +
-            '  - 填坑：**下游必须幂等**（订单 ID 唯一 + 数据库 upsert）',
+          body: '- **Redis Pub/Sub 丢消息**：订阅者断连再连，中间发布的**没了**——因为 Redis Pub/Sub 是**内存瞬时广播**，无历史\n  - 填坑：换 **Redis Streams**（有 offset）或 **Kafka**\n- **Kafka 分区顺序 vs Topic 顺序**：**同一 partition 有序，跨 partition 无序**——按业务 key hash 到同一 partition（同用户订单打一 partition）\n- **Consumer group 重复消费**：consumer crash 前没 commit offset → rebalance 后新 consumer 从上次 commit 处重放\n  - 填坑：**下游必须幂等**（订单 ID 唯一 + 数据库 upsert）',
         },
         {
           kind: 'md',
           title: 'SEDA / Pipeline 队列爆掉',
-          body: '- **典型症状**：某个 stage 处理慢 → 前置 stage 队列越堆越长 → 内存 OOM 或超时雪崩\n' +
-            '- **填坑**：\n' +
-            '  1. **有界队列 + 背压**：Netty <code>ChannelOption.WRITE_BUFFER_WATER_MARK</code>、Reactive Streams <code>request(n)</code>\n' +
-            '  2. **限流**：入口层拒绝新请求（限流器主题里的令牌桶）\n' +
-            '  3. **观测**：每 stage 队列深度打指标；P95 队列长度是核心信号\n' +
-            '  4. **降级**：非核心 stage 直接丢（按业务优先级）',
+          body: '- **典型症状**：某个 stage 处理慢 → 前置 stage 队列越堆越长 → 内存 OOM 或超时雪崩\n- **填坑**：\n  1. **有界队列 + 背压**：Netty <code>ChannelOption.WRITE_BUFFER_WATER_MARK</code>、Reactive Streams <code>request(n)</code>\n  2. **限流**：入口层拒绝新请求（限流器主题里的令牌桶）\n  3. **观测**：每 stage 队列深度打指标；P95 队列长度是核心信号\n  4. **降级**：非核心 stage 直接丢（按业务优先级）',
         },
       ],
       'how-fixed': [
         {
           kind: 'md',
           title: '面试话术：把设计模型和实际系统绑一起',
-          body: '**别只答概念**，一定要把模型和你实际做过的系统绑起来讲：\n\n' +
-            '- 「我做过的**游戏世界服是 Actor 模型 + 单 tick 循环**——每玩家一个 actor 独占状态，跨玩家操作走消息，避开锁；瓶颈在 CPU 而不是 IO」\n' +
-            '- 「**业务代理 platpxy 是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」\n' +
-            '- 「**NZMesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」\n' +
-            '- 「**paypxy 支付回调是 Pipeline + 幂等**——米大师 → 验签 → 幂等四道闸 → RPC 转 mallsvrd 发货，每级失败都能重放」',
+          body: '**别只答概念**，一定要把模型和你实际做过的系统绑起来讲：\n\n- 「我做过的**游戏世界服是 Actor 模型 + 单 tick 循环**——每玩家一个 actor 独占状态，跨玩家操作走消息，避开锁；瓶颈在 CPU 而不是 IO」\n- 「**业务代理 platpxy 是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」\n- 「**NZMesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」\n- 「**paypxy 支付回调是 Pipeline + 幂等**——米大师 → 验签 → 幂等四道闸 → RPC 转 mallsvrd 发货，每级失败都能重放」',
         },
         {
           kind: 'md',
           title: '模型组合而非二选一',
-          body: '真实系统**从来不是单一模型**，都是组合：\n\n' +
-            '- **Nginx**：Master-Worker（进程模型）+ 每 worker 内 Reactor（IO 模型）\n' +
-            '- **Netty**：主从 Reactor + Pipeline（业务模型）+ 可选 EventExecutor 线程池（Half-Sync/Half-Async）\n' +
-            '- **Erlang OTP**：Actor（进程模型）+ Supervisor Tree（监督模型）+ gen_server/gen_statem（行为模式）\n' +
-            '- **Kafka Broker**：Reactor（网络层 SocketServer）+ Master-Worker（KafkaRequestHandler 池）+ Pub/Sub（协议层）+ 顺序日志（存储层）\n' +
-            '- **Envoy**：主从 Reactor + Filter Chain（Pipeline）+ xDS 事件驱动配置更新（Pub/Sub）',
+          body: '真实系统**从来不是单一模型**，都是组合：\n\n- **Nginx**：Master-Worker（进程模型）+ 每 worker 内 Reactor（IO 模型）\n- **Netty**：主从 Reactor + Pipeline（业务模型）+ 可选 EventExecutor 线程池（Half-Sync/Half-Async）\n- **Erlang OTP**：Actor（进程模型）+ Supervisor Tree（监督模型）+ gen_server/gen_statem（行为模式）\n- **Kafka Broker**：Reactor（网络层 SocketServer）+ Master-Worker（KafkaRequestHandler 池）+ Pub/Sub（协议层）+ 顺序日志（存储层）\n- **Envoy**：主从 Reactor + Filter Chain（Pipeline）+ xDS 事件驱动配置更新（Pub/Sub）',
         },
         {
           kind: 'md',
           title: '一句话面试反应表',
-          body: '- **看到「Nginx 为什么快」→ 想到**：Master-Worker + 每 worker Reactor（epoll）+ SO_REUSEPORT + zero-copy sendfile\n' +
-            '- **看到「Erlang 为什么高可用」→ 想到**：Actor + 独立堆消息拷贝 + Supervisor Tree + let-it-crash + 热更代码\n' +
-            '- **看到「Go 并发模型」→ 想到**：CSP（不是 Actor）+ GMP 调度 + channel 是一等对象 + <code>select</code> 多路\n' +
-            '- **看到「Redis 单线程为什么快」→ 想到**：Reactor + 内存 + IO 多路复用 + 单线程串行化免锁\n' +
-            '- **看到「Node.js 为什么适合 IO」→ 想到**：单线程 Event Loop + libuv 线程池 + 微任务/宏任务；CPU 密集要 worker_threads\n' +
-            '- **看到「同步 vs 异步 vs 阻塞 vs 非阻塞」→ 想到**：两个正交维度 + 四象限 + Linux epoll 是同步非阻塞而非异步\n' +
-            '- **看到「消息队列选型」→ 想到**：Kafka（日志式，可回放，分区有序）vs RabbitMQ（AMQP 语义，路由复杂）vs Redis Streams（轻量，consumer group）\n' +
-            '- **看到「背压怎么做」→ 想到**：channel 有界 + 阻塞发送 / Reactive Streams request(n) / 限流器 / 有损丢弃',
+          body: '- **看到「Nginx 为什么快」→ 想到**：Master-Worker + 每 worker Reactor（epoll）+ SO_REUSEPORT + zero-copy sendfile\n- **看到「Erlang 为什么高可用」→ 想到**：Actor + 独立堆消息拷贝 + Supervisor Tree + let-it-crash + 热更代码\n- **看到「Go 并发模型」→ 想到**：CSP（不是 Actor）+ GMP 调度 + channel 是一等对象 + <code>select</code> 多路\n- **看到「Redis 单线程为什么快」→ 想到**：Reactor + 内存 + IO 多路复用 + 单线程串行化免锁\n- **看到「Node.js 为什么适合 IO」→ 想到**：单线程 Event Loop + libuv 线程池 + 微任务/宏任务；CPU 密集要 worker_threads\n- **看到「同步 vs 异步 vs 阻塞 vs 非阻塞」→ 想到**：两个正交维度 + 四象限 + Linux epoll 是同步非阻塞而非异步\n- **看到「消息队列选型」→ 想到**：Kafka（日志式，可回放，分区有序）vs RabbitMQ（AMQP 语义，路由复杂）vs Redis Streams（轻量，consumer group）\n- **看到「背压怎么做」→ 想到**：channel 有界 + 阻塞发送 / Reactive Streams request(n) / 限流器 / 有损丢弃',
         },
         {
           kind: 'md',
           title: '一句话总结每个模型的「杀手场景」',
-          body: '- **Reactor**：**单机极高 IO 并发**（Nginx / Redis）——用户态串行化免锁\n' +
-            '- **Proactor / io_uring**：**syscall 密集**（数据库、代理、日志系统）——批量提交批量收\n' +
-            '- **Actor**：**状态强耦合 + 分布式**（游戏 / 电信 / 金融）——每状态独立 actor 免锁\n' +
-            '- **CSP**：**通用后台业务**（Go 生态）——channel 一等公民、易读易组合\n' +
-            '- **Event Loop**：**IO 密集单进程**（Node、GUI）——单线程避免锁 + 简单心智模型\n' +
-            '- **Master-Worker**：**故障隔离 + 多核利用**（Nginx / Gunicorn）——一个 worker 崩不影响别的\n' +
-            '- **Pipeline / SEDA**：**流式加工 + 分级限流**（Netty ChannelPipeline / ETL）——每级独立扩缩\n' +
-            '- **Pub/Sub**：**解耦发布方与订阅方**（Kafka / Redis）——事件驱动架构核心',
+          body: '- **Reactor**：**单机极高 IO 并发**（Nginx / Redis）——用户态串行化免锁\n- **Proactor / io_uring**：**syscall 密集**（数据库、代理、日志系统）——批量提交批量收\n- **Actor**：**状态强耦合 + 分布式**（游戏 / 电信 / 金融）——每状态独立 actor 免锁\n- **CSP**：**通用后台业务**（Go 生态）——channel 一等公民、易读易组合\n- **Event Loop**：**IO 密集单进程**（Node、GUI）——单线程避免锁 + 简单心智模型\n- **Master-Worker**：**故障隔离 + 多核利用**（Nginx / Gunicorn）——一个 worker 崩不影响别的\n- **Pipeline / SEDA**：**流式加工 + 分级限流**（Netty ChannelPipeline / ETL）——每级独立扩缩\n- **Pub/Sub**：**解耦发布方与订阅方**（Kafka / Redis）——事件驱动架构核心',
         },
       ],
     },
@@ -1959,3 +2249,338 @@ window.__GUIDE_THEMES__ = [
     sources: ['综合整理：K8s 官方文档、Argo Rollouts / Flagger / Kruise Rollout 官方指南、Istio Traffic Management、Nginx-Ingress annotations、Google SRE Book Ch.16（2026-07）'],
   },
 ];
+</script>
+<script>window.__GUIDE_THEME_ID__ = "release-strategy";</script>
+
+<script>
+(function () {
+  var id = window.__GUIDE_THEME_ID__;
+  var arr = window.__GUIDE_THEMES__ || [];
+  var t = arr.find(function (x) { return x.id === id; });
+  window.__GUIDE_MODE__ = 'single';
+  window.__GUIDE_THEME__ = t;
+})();
+</script>
+<script>// ==============================================================
+// Interview Review Guide — shared runtime (documentation style)
+// Vanilla JS. No CDN. Works from file://.
+// ==============================================================
+(function () {
+  'use strict';
+
+  const STAGES = [
+    { key: 'what-is',    label: '是什么' },
+    { key: 'why-choose', label: '为什么这么选' },
+    { key: 'what-broke', label: '踩过什么坑' },
+    { key: 'how-fixed',  label: '怎么填的' },
+  ];
+
+  // ---- Tiny Markdown (subset) -----------------------------------
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function renderInline(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + c + '</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    return s;
+  }
+  function renderMarkdown(md) {
+    if (!md) return '';
+    const lines = md.replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (/^```/.test(line)) {
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + escapeHtml(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (/^---\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
+      let m;
+      if ((m = /^####\s+(.*)$/.exec(line))) { out.push('<h4>' + renderInline(m[1]) + '</h4>'); i++; continue; }
+      if ((m = /^###\s+(.*)$/.exec(line)))  { out.push('<h4>' + renderInline(m[1]) + '</h4>'); i++; continue; }
+      if (/^>\s?/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, '')); i++; }
+        out.push('<blockquote>' + renderInline(buf.join(' ')) + '</blockquote>');
+        continue;
+      }
+      if (/^\|.*\|$/.test(line) && i + 1 < lines.length && /^\|[\s:\-|]+\|$/.test(lines[i + 1])) {
+        const header = line.split('|').slice(1, -1).map(s => s.trim());
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\|.*\|$/.test(lines[i])) {
+          rows.push(lines[i].split('|').slice(1, -1).map(s => s.trim()));
+          i++;
+        }
+        let html = '<table><thead><tr>';
+        header.forEach(h => html += '<th>' + renderInline(h) + '</th>');
+        html += '</tr></thead><tbody>';
+        rows.forEach(r => {
+          html += '<tr>';
+          r.forEach(c => html += '<td>' + renderInline(c) + '</td>');
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        out.push(html);
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^[-*]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^[-*]\s+/, '')); i++; }
+        out.push('<ul>' + buf.map(t => '<li>' + renderInline(t) + '</li>').join('') + '</ul>');
+        continue;
+      }
+      if (/^\d+\.\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^\d+\.\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\d+\.\s+/, '')); i++; }
+        out.push('<ol>' + buf.map(t => '<li>' + renderInline(t) + '</li>').join('') + '</ol>');
+        continue;
+      }
+      if (/^\s*$/.test(line)) { i++; continue; }
+      const buf = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^```/.test(lines[i]) && !/^#{3,4}\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !/^\d+\.\s+/.test(lines[i]) && !/^>\s?/.test(lines[i]) && !(/^\|.*\|$/.test(lines[i]) && i + 1 < lines.length && /^\|[\s:\-|]+\|$/.test(lines[i + 1]))) {
+        buf.push(lines[i]); i++;
+      }
+      out.push('<p>' + renderInline(buf.join(' ')) + '</p>');
+    }
+    return out.join('\n');
+  }
+
+  // ---- Section renderers ---------------------------------------
+  const SECTION_RENDERERS = {
+    md(sec) {
+      const body = renderMarkdown(sec.body || '');
+      return sec.title ? ('<h4>' + escapeHtml(sec.title) + '</h4>' + body) : body;
+    },
+    quote(sec) {
+      return '<blockquote>' + renderInline(sec.text || '') + '</blockquote>';
+    },
+    kv(sec) {
+      const items = (sec.items || []).map(pair => {
+        const [k, v] = pair;
+        return '<div class="k">' + escapeHtml(k) + '</div><div class="v">' + renderInline(v) + '</div>';
+      }).join('');
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') + '<div class="kv">' + items + '</div>';
+    },
+    table(sec) {
+      const head = (sec.header || []).map(h => '<th>' + renderInline(h) + '</th>').join('');
+      const rows = (sec.rows || []).map(r => '<tr>' + r.map(c => '<td>' + renderInline(c) + '</td>').join('') + '</tr>').join('');
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<table><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    },
+    code(sec) {
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<pre><code>' + escapeHtml(sec.body || '') + '</code></pre>';
+    },
+    ascii(sec) {
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<div class="ascii">' + escapeHtml(sec.body || '') + '</div>';
+    },
+    callout(sec) {
+      const variant = sec.variant || 'info';
+      return '<div class="callout ' + escapeHtml(variant) + '">' +
+        (sec.title ? '<div class="title">' + escapeHtml(sec.title) + '</div>' : '') +
+        (sec.body ? renderMarkdown(sec.body) : '') +
+        '</div>';
+    },
+  };
+  function renderSection(sec) {
+    const r = SECTION_RENDERERS[sec.kind];
+    if (!r) {
+      console.warn('[guide] unknown section kind:', sec.kind, sec);
+      return '<p>' + renderInline((sec.body || sec.text || JSON.stringify(sec))) + '</p>';
+    }
+    return r(sec);
+  }
+
+  // ---- Theme block rendering (documentation style) --------------
+  function renderThemeBlock(theme, opts) {
+    opts = opts || {};
+    let html = '';
+    html += '<section class="theme-block" id="' + escapeHtml(theme.id) + '">';
+    html += '<h2 class="theme-title" id="theme-' + escapeHtml(theme.id) + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '">§</a>' + escapeHtml(theme.icon || '') + ' ' + escapeHtml(theme.title || '') + '</h2>';
+    if (theme.tagline) html += '<div class="tagline">' + renderInline(theme.tagline) + '</div>';
+    if (theme.hero) {
+      html += (Array.isArray(theme.hero) ? theme.hero : [theme.hero]).map(renderSection).join('\n');
+    }
+    STAGES.forEach(stage => {
+      const secs = (theme.stages && theme.stages[stage.key]) || [];
+      const bodyHtml = secs.length
+        ? secs.map(renderSection).join('\n')
+        : '<p><em>待补充</em></p>';
+      html += '<h3 class="stage" data-stage="' + stage.key + '" id="' + escapeHtml(theme.id) + '__' + stage.key + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '__' + stage.key + '">§</a>' + escapeHtml(stage.label) + '</h3>';
+      html += bodyHtml;
+    });
+    if (theme.sources && theme.sources.length) {
+      html += '<h3 class="stage" data-stage="sources" id="' + escapeHtml(theme.id) + '__sources">内容来源</h3>';
+      html += '<ul>' + theme.sources.map(s => '<li>' + renderInline(s) + '</li>').join('') + '</ul>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function renderSidebar(themes) {
+    let html = '';
+    html += '<div class="brand">📖 面试复习中心<small>9 年后台 · ' + themes.length + ' 大专题</small></div>';
+    html += '<h2>专题</h2><ul>';
+    themes.forEach(t => {
+      html += '<li><a href="#' + escapeHtml(t.id) + '" data-nav="' + escapeHtml(t.id) + '">' + escapeHtml(t.icon || '') + ' ' + escapeHtml(t.title) + '</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__what-is">是什么</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__why-choose">为什么这么选</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__what-broke">踩过什么坑</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__how-fixed">怎么填的</a></li>';
+    });
+    html += '</ul>';
+    html += '<div class="tools">';
+    html += '<button id="btn-theme" title="亮/暗主题">☾ 主题</button>';
+    html += '<button onclick="window.print()" title="打印">🖨 打印</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderSidebarSingle(theme) {
+    let html = '';
+    html += '<div class="brand">📖 ' + escapeHtml(theme.title) + '<small>面试复习分册</small></div>';
+    html += '<h2>目录</h2><ul>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__what-is">① 是什么</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__why-choose">② 为什么这么选</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__what-broke">③ 踩过什么坑</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__how-fixed">④ 怎么填的</a></li>';
+    if (theme.sources && theme.sources.length) {
+      html += '<li><a href="#' + escapeHtml(theme.id) + '__sources">📎 内容来源</a></li>';
+    }
+    html += '</ul>';
+    html += '<div class="tools">';
+    html += '<button id="btn-theme" title="亮/暗主题">☾ 主题</button>';
+    html += '<button onclick="window.print()" title="打印">🖨 打印</button>';
+    html += '<a href="index.html">← 返回首页</a>';
+    html += '</div>';
+    return html;
+  }
+
+  function bindThemeToggle() {
+    const btn = document.getElementById('btn-theme');
+    if (!btn) return;
+    let stored = null;
+    try { stored = localStorage.getItem('guide-theme'); } catch (_) {}
+    if (stored) document.documentElement.setAttribute('data-theme', stored);
+    btn.addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? '' : 'dark';
+      if (cur) document.documentElement.setAttribute('data-theme', cur);
+      else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('guide-theme', cur); } catch (_) {}
+    });
+  }
+
+  function bindMobileMenu() {
+    const btn = document.getElementById('menu-btn');
+    const sidebar = document.getElementById('sidebar');
+    if (!btn || !sidebar) return;
+    btn.addEventListener('click', () => sidebar.classList.toggle('open'));
+    sidebar.addEventListener('click', (e) => {
+      if (e.target.tagName === 'A') sidebar.classList.remove('open');
+    });
+  }
+
+  function bindScrollSpy(themes) {
+    const links = document.querySelectorAll('.sidebar a[data-nav]');
+    if (!links.length) return;
+    const map = {};
+    themes.forEach(t => {
+      const el = document.getElementById(t.id);
+      if (el) map[t.id] = el;
+    });
+    function onScroll() {
+      const y = window.scrollY + 100;
+      let active = themes[0] && themes[0].id;
+      themes.forEach(t => {
+        const el = map[t.id];
+        if (el && el.offsetTop <= y) active = t.id;
+      });
+      links.forEach(a => a.classList.toggle('active', a.dataset.nav === active));
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
+  // ---- Boot -----------------------------------------------------
+  function bootHub() {
+    const themes = window.__GUIDE_THEMES__ || [];
+    const sidebar = document.getElementById('sidebar');
+    const content = document.getElementById('content');
+    if (!sidebar || !content) return;
+
+    sidebar.innerHTML = renderSidebar(themes);
+    let contentHtml = '';
+    contentHtml += '<h1 class="doc-title">面试复习中心</h1>';
+    contentHtml += '<p class="doc-lede">9 年后台开发（3 年互联网 + 6 年游戏）· ' + themes.length + ' 大专题按 <strong>是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的</strong> 四段式组织。侧边栏可跳转，或直接向下滚动阅读。</p>';
+    themes.forEach(t => contentHtml += renderThemeBlock(t));
+    contentHtml += '<div class="footer-note" id="footer-note"></div>';
+    content.innerHTML = contentHtml;
+
+    const footer = document.getElementById('footer-note');
+    if (footer) footer.innerHTML = (window.__GUIDE_META__ && window.__GUIDE_META__.footerNote) || '';
+
+    bindThemeToggle();
+    bindMobileMenu();
+    bindScrollSpy(themes);
+  }
+
+  function bootSingle() {
+    const theme = window.__GUIDE_THEME__;
+    if (!theme) return;
+    const sidebar = document.getElementById('sidebar');
+    const content = document.getElementById('content');
+    if (!sidebar || !content) return;
+
+    sidebar.innerHTML = renderSidebarSingle(theme);
+    let contentHtml = '';
+    contentHtml += '<h1 class="doc-title">' + escapeHtml(theme.icon || '') + ' ' + escapeHtml(theme.title) + '</h1>';
+    if (theme.tagline) contentHtml += '<p class="doc-lede">' + renderInline(theme.tagline) + '</p>';
+    // For single view, render without the theme wrapper (theme title is the doc title)
+    if (theme.hero) {
+      contentHtml += (Array.isArray(theme.hero) ? theme.hero : [theme.hero]).map(renderSection).join('\n');
+    }
+    STAGES.forEach(stage => {
+      const secs = (theme.stages && theme.stages[stage.key]) || [];
+      const bodyHtml = secs.length ? secs.map(renderSection).join('\n') : '<p><em>待补充</em></p>';
+      contentHtml += '<h3 class="stage" data-stage="' + stage.key + '" id="' + escapeHtml(theme.id) + '__' + stage.key + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '__' + stage.key + '">§</a>' + escapeHtml(stage.label) + '</h3>';
+      contentHtml += bodyHtml;
+    });
+    if (theme.sources && theme.sources.length) {
+      contentHtml += '<h3 class="stage" data-stage="sources" id="' + escapeHtml(theme.id) + '__sources">内容来源</h3>';
+      contentHtml += '<ul>' + theme.sources.map(s => '<li>' + renderInline(s) + '</li>').join('') + '</ul>';
+    }
+    contentHtml += '<div class="footer-note" id="footer-note"></div>';
+    content.innerHTML = contentHtml;
+
+    const footer = document.getElementById('footer-note');
+    if (footer) footer.innerHTML = (window.__GUIDE_META__ && window.__GUIDE_META__.footerNote) || '';
+
+    bindThemeToggle();
+    bindMobileMenu();
+  }
+
+  function boot() {
+    if (window.__GUIDE_MODE__ === 'hub') bootHub();
+    else if (window.__GUIDE_MODE__ === 'single') bootSingle();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  window.__GUIDE_API__ = { renderMarkdown, renderSection, renderThemeBlock };
+})();
+</script>
+</body>
+</html>

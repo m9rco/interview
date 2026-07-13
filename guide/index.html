@@ -1865,6 +1865,389 @@ window.__GUIDE_THEMES__ = [
     },
     sources: ['综合整理：Google Maglev/Jump 论文、Redis / RocksDB 源码、《数据结构与算法分析》（2026-07）'],
   },
+
+  // =============================================================
+  // 11. DESIGN-MODEL (并发/协作设计模型)
+  // =============================================================
+  {
+    id: 'design-model',
+    title: '设计模型 · Actor / CSP / Reactor / 同步异步',
+    icon: '🧭',
+    tagline: '一句话地图：同步/异步 vs 阻塞/非阻塞是「维度」；Reactor/Proactor/Actor/CSP/EventLoop 是「工程模型」，两者组合出真正的架构。',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '为什么单独一个专题',
+        body: '面试常问「你说 Go 是 CSP，为什么不是 Actor？」「Nginx 是 Reactor 还是 Proactor？」「同步 = 阻塞吗？」——这些不是并发原语（那些在**并发模型**专题），而是**上层的协作/交互模型**。搞清楚模型，才能一句话回答架构选型。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '两组正交维度：先把词分清楚',
+          body: '很多人把「同步/阻塞」混着说，其实是**两个正交维度**：\n- **同步 vs 异步**：调用方**要不要等结果**——同步就地拿返回值；异步先拿一个 future/callback，结果晚点通过回调/轮询/队列送来\n- **阻塞 vs 非阻塞**：调用**遇到 IO 未就绪时**做什么——阻塞就把当前线程挂起；非阻塞立刻返回 <code>EAGAIN</code>/<code>EWOULDBLOCK</code>\n\n**四象限**（以读 socket 为例）：\n- 同步阻塞：<code>read()</code> 默认；一直等到有数据\n- 同步非阻塞：<code>read()</code> + <code>O_NONBLOCK</code>；没数据立即返回，**要自己轮询**（浪费 CPU）\n- 异步阻塞（少见）：<code>select()</code>/<code>epoll_wait</code> 本身阻塞等**任一 fd 就绪**——严格说是「多路复用」，不是纯异步\n- **异步非阻塞**：<code>io_uring</code> / Windows IOCP / <code>aio_read</code>；提交请求后立刻走人，内核完成后通知/写完成队列——**才是真正的异步 IO**\n\n**Linux 的坑**：<code>epoll</code>+<code>O_NONBLOCK</code> 从来都**不是**异步 IO，是**同步非阻塞 + 就绪通知**——真正把「读」这个 syscall 交给内核异步做的，只有 <code>io_uring</code>（5.1+）和 POSIX AIO（少用）。',
+        },
+        {
+          kind: 'ascii',
+          title: '同步 vs 异步 · 阻塞 vs 非阻塞',
+          body:
+'                    ┌────────────── 同步 ──────────────┐  ┌────────── 异步 ──────────┐\n' +
+'                    │  调用方等结果                     │  │  调用方拿 future/callback │\n' +
+'                    ├──────────────┬────────────────────┤  ├──────────────────────────┤\n' +
+'    阻塞            │ read() 默认   │ epoll_wait 阻塞等   │  │ (少见, aio 阻塞变种)     │\n' +
+'    (线程挂起)      │ (最普通)      │ 就绪 (多路复用)     │  │                          │\n' +
+'                    ├──────────────┼────────────────────┤  ├──────────────────────────┤\n' +
+'    非阻塞          │ read()+       │ epoll+O_NONBLOCK    │  │ io_uring / IOCP / aio    │\n' +
+'    (立即返回)      │ EAGAIN 轮询   │ (Reactor 常态)      │  │ (真正的异步 IO)          │\n' +
+'                    └──────────────┴────────────────────┘  └──────────────────────────┘',
+        },
+        {
+          kind: 'table',
+          title: '主流协作/交互设计模型',
+          header: ['模型', '一句话', '状态所有权', '通信方式', '代表'],
+          rows: [
+            ['**Reactor**', '同步就绪通知 + 用户态派发', '共享（同事件循环内）', '事件回调 (readable/writable)', 'Nginx / Netty / libevent / Redis (单 EL)'],
+            ['**Proactor**', '异步完成通知 + 用户态派发', '共享（同事件循环内）', '完成事件 (read done)', 'Windows IOCP / Boost.Asio (Windows)'],
+            ['**Actor**', '一个 actor = 一个邮箱 + 私有状态', '**每 actor 独占**', '**异步消息**（send/receive）', 'Erlang/Elixir / Akka / Orleans'],
+            ['**CSP**', 'goroutine + channel，通信通过通道而非共享内存', '**每 goroutine 独占**', '**同步 channel**（发送方等接收）', 'Go / Occam / Clojure core.async'],
+            ['**Event Loop**', '单线程轮询 + 回调，天生串行', '共享（单线程内）', '任务队列 + microtask', 'Node.js / Chrome / Redis 单 EL / GUI 主线程'],
+            ['**SEDA**', 'Stage 化事件驱动，每级独立线程池 + 队列', 'Stage 内共享', 'Stage 间**队列**', 'Cassandra 早期 / Storm / 写死的流水线'],
+            ['**Half-Sync/Half-Async**', '前端异步 IO 收包，后端同步池处理', '分层', 'IO 层→worker 队列', 'Envoy 早期版本 / 部分 RPC 框架'],
+            ['**Leader/Follower**', '一个线程当 leader 收包，收到后升为 worker，另一线程接任 leader', '轮流独占', '角色轮转 + 少量共享队列', 'ACE 框架 / 一些高性能 RPC'],
+            ['**Master-Worker**', 'Master 负责 accept + 分发，Workers 干活', 'Master 全局，Worker 独占', 'Master→Worker 队列 / socket 传递', 'Nginx 多 worker / Gunicorn / prefork'],
+            ['**Pipeline**', '一条数据经过多阶段依次加工', 'Stage 独占', '**背压 channel**', 'Netty ChannelPipeline / Rust tokio-tower / ETL'],
+            ['**Pub/Sub**', '发布者写 topic，订阅者独立消费', '解耦', '**topic + 订阅关系**', 'Kafka / Redis Pub/Sub / Lua signal'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'Actor 与 CSP 的核心区别（面试爱问）',
+          body: '别只答「一个用 mailbox 一个用 channel」——**核心是耦合方向**：\n\n| 维度 | Actor | CSP |\n|---|---|---|\n| **通道所有权** | mailbox 属于**接收方 actor**，每个 actor 一个 | channel 是**独立第一类对象**，可传递、可关闭 |\n| **寻址方式** | **发送方要有目标 actor 的引用/PID** | 发送方只认识 channel，**不知道对面是谁** |\n| **发送语义** | **异步**：send 立刻返回；邮箱满时策略不同（Akka=丢/Erlang=阻塞） | **同步**（无缓冲）：发送方等接收方就位；带缓冲时才异步 |\n| **匹配语义** | 消息类型模式匹配 (<code>receive do ... end</code>) | select 多路 case，**同时可读/写多个 channel** |\n| **典型单元** | 每 actor 一个 goroutine 级别的进程 | goroutine + channel，channel 是显式对象 |\n\n**一句话**：Actor **知道给谁发**，CSP **知道往哪发**。\n\n**为什么 Go 是 CSP 不是 Actor**：Go 的 goroutine 没有内建 mailbox，也没有 PID；<code>ch &lt;- msg</code> 是**面向 channel** 的。虽然可以用 goroutine + 一个专属 chan 模拟 actor，但那是**在 CSP 之上实现 Actor**。',
+        },
+        {
+          kind: 'ascii',
+          title: 'Actor vs CSP 邮箱模型',
+          body:
+'  === Actor ===                          === CSP ===\n' +
+'                                                          \n' +
+'  ┌────────┐  send(pidB, m)              ┌────────┐   ch<-m\n' +
+'  │ actor A│───────────────►┌───────┐    │ goro A │────────►┌─────┐  <-ch  ┌────────┐\n' +
+'  └────────┘                │mailbox│    └────────┘         │ ch  │───────►│ goro B │\n' +
+'                            │       │                       └─────┘        └────────┘\n' +
+'                            └───┬───┘\n' +
+'                                ▼\n' +
+'                          ┌────────┐\n' +
+'                          │ actor B│  receive → pattern match\n' +
+'                          └────────┘\n' +
+'                                              ↑ ch 是独立对象；A/B 都不认识对方',
+        },
+        {
+          kind: 'md',
+          title: 'Reactor 详解 · 三种变体',
+          body: '**Reactor = 事件多路复用（epoll/kqueue）+ 就绪回调派发**——它是**同步**模型（IO 还是自己 read/write，只是内核只在就绪时喊你）。\n\n- **单 Reactor 单线程**（Redis 6 之前的主流）：一个线程跑 event loop + 处理所有回调；简单，但一个慢回调堵住整个进程\n- **单 Reactor 多线程**（早期 Netty）：Reactor 只做 accept + read；业务处理丢线程池；缺点是**每个连接的读写还在 Reactor 线程**，读写多时仍打爆\n- **主从 Reactor**（Nginx / Netty 主流 / Redis 6+ IO 多线程）：**一个 mainReactor 负责 accept**；分派到多个 subReactor（每个绑一个线程），subReactor 负责各自连接的整个 IO 生命周期；业务再丢 worker 池\n\n**Proactor 与 Reactor 的差别**在**是谁 read**：Reactor 是「就绪 → 你去 read」；Proactor 是「你先说要 read 到某 buffer → 内核搞完 → 通知你 buffer 好了」。Linux 上 **io_uring** 让 Proactor 真正落地。',
+        },
+        {
+          kind: 'ascii',
+          title: '主从 Reactor（Nginx 风格）',
+          body:
+'         accept()                     ┌── subReactor#1 ─┐   ┌── worker pool ─┐\n' +
+'  clients ─────► mainReactor ────────►│ epoll_wait      │──►│ 业务函数 (可选) │\n' +
+'                 (accept only)        │ read/write conn │   └────────────────┘\n' +
+'                       │              └─────────────────┘\n' +
+'                       ├──────────────► subReactor#2\n' +
+'                       ├──────────────► subReactor#3    (每个 subReactor = 1 线程 + 独立 epoll)\n' +
+'                       └──────────────► subReactor#N',
+        },
+        {
+          kind: 'md',
+          title: 'Event Loop 与「宏任务/微任务」（前端 & Node）',
+          body: '**Event Loop = 单线程 + 队列 + 事件驱动**，本质是最简单的 Reactor 变体。\n\n**Node.js 阶段（每轮 tick 顺序）**：\n1. **Timers**：到期的 <code>setTimeout</code>/<code>setInterval</code>\n2. **Pending callbacks**：延迟到下轮的 IO 回调\n3. **Idle/Prepare**：内部\n4. **Poll**：<code>epoll_wait</code> 收 IO；这里可能阻塞\n5. **Check**：<code>setImmediate</code> 回调\n6. **Close callbacks**：<code>socket.on(\'close\')</code> 等\n\n每一步之间**清空 microtask 队列**（<code>process.nextTick</code>、Promise then）。\n\n**浏览器**：宏任务（script、setTimeout、MessageChannel、UI 事件）+ 微任务（Promise、MutationObserver、queueMicrotask）；**每次宏任务结束都清空所有微任务**——所以微任务饿死宏任务是常见 bug（无限 <code>Promise.resolve().then(...)</code>）。',
+        },
+        {
+          kind: 'md',
+          title: 'SEDA / Pipeline / Half-Sync-Half-Async',
+          body: '- **SEDA (Staged Event-Driven Architecture)**：Matt Welsh 2001 论文；把服务拆成多个 stage，每 stage 独立线程池 + 队列，观察队列长度**自动扩缩容 stage 线程数**——早期 Cassandra 用过。缺点是队列多、上下文切换密\n- **Pipeline**：类似 SEDA 但强调**顺序**和**背压**——上游快下游慢时，channel 满会阻塞上游；Netty 的 <code>ChannelPipeline</code> 是最经典实现\n- **Half-Sync/Half-Async**：ACE 框架总结的模式——**IO 层做异步/事件驱动**（收包），**worker 层做同步阻塞**（业务）。中间用队列解耦。**Envoy** 早期版本本质就是这个：libevent 收包 + worker 线程池处理请求',
+        },
+        {
+          kind: 'md',
+          title: 'Master-Worker / Leader-Follower',
+          body: '- **Master-Worker (Prefork)**：Nginx / Gunicorn / Apache prefork——**Master 只做管理**（信号、配置 reload、worker 存活），**Workers 各自 accept**（Linux 3.9+ <code>SO_REUSEPORT</code> 内核负载均衡；老内核靠 <code>accept</code> mutex 或惊群）。**故障隔离好**（一个 worker crash 不影响别的），**内存共享靠 fork 时的 CoW**\n- **Leader-Follower**：ACE 提出的高性能模式——**只有 leader 线程持锁 <code>epoll_wait</code>**；收到事件后**升级为 worker**、把 leader 角色交给一个 follower；处理完事件后回队排 follower。避免了「多个线程同时 <code>epoll_wait</code>」的惊群和上下文切换。适合**极短 CPU 处理**的高并发场景',
+        },
+        {
+          kind: 'md',
+          title: 'Pub/Sub · Fan-out',
+          body: '**Pub/Sub 与 Actor/CSP 的差别**在**寻址粒度**：\n- Actor 是 **1 → 1 定向**（有 PID）\n- CSP channel 是 **N → M 匿名**\n- Pub/Sub 是 **1 → N 广播**：发布者只管往 topic 写，订阅者自主拉/推\n\n**关键实现分野**：\n- **消息中间件式**（Kafka）：**日志式**——消息按 offset 存磁盘，订阅者独立维护 offset，可**回放**\n- **总线式**（Redis Pub/Sub）：**内存瞬时**——订阅前发布的消息**丢失**，无历史\n- **总线增强版**（Redis Streams / RabbitMQ）：既有历史又能广播，靠 consumer group 分工消费',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '选型公式：先看状态耦合，再看 IO 密集度',
+          body: '```\n状态强耦合（同一玩家/同一订单多条消息串行）？\n  ├─ 是 → Actor / 单线程 event loop（每 actor 独占状态）\n  └─ 否 →\n        IO 密集？\n          ├─ 是 → CSP / Reactor（协程 + 多路复用）\n          └─ 否 → 线程池 + 分段锁（CPU 密集）\n\n需要跨节点？（分布式）\n  ├─ 是 → Actor（Erlang/Akka Cluster） 或 消息队列 + 无状态服务\n  └─ 否 → 单机上述模型即可\n\n要不要背压？\n  ├─ 要 → CSP（channel 阻塞）/ Pipeline / Reactive Streams（onBackpressure*）\n  └─ 不要 → Actor 邮箱容忍溢出策略 / Pub/Sub 丢消息\n```',
+        },
+        {
+          kind: 'kv',
+          title: '不同后台的默认设计',
+          items: [
+            ['**游戏世界服**', 'Actor + 单 tick 循环——每玩家 = 一个 actor（或每场景 = 一个 actor），私有状态，异步消息驱动，天然串行；跨玩家操作用 send。**这就是我 6 年游戏后台的默认模型**'],
+            ['**MMO 场景服**', 'Actor + 分区（Sharding）——每 shard 一 actor，AOI 广播用 pub/sub 表达「这条消息给附近所有人」'],
+            ['**互联网 API 服务**', '主从 Reactor + Half-Sync/Half-Async——Netty/Gin/FastAPI 的默认路数；协程池处理业务；DB 是瓶颈'],
+            ['**Nginx / 反向代理**', 'Master-Worker + Reactor（epoll）；每 worker 一个 event loop，处理成千连接'],
+            ['**Redis**', '**Redis 6 之前是单 event loop**（Reactor），Redis 6+ 加了 IO 多线程但**命令执行仍单线程**——串行化保证原子性'],
+            ['**Kafka Broker**', 'Reactor（网络层 SocketServer）+ 队列 + 磁盘顺序写；Producer/Consumer 都是 pub/sub 上层协议'],
+            ['**Erlang / Elixir 服务**', 'Actor 全套；BEAM VM 每进程独立堆、消息拷贝、抢占式调度、supervisor tree'],
+            ['**Node.js**', '单线程 event loop + libuv 线程池（DNS/文件 IO）；IO 密集完美，CPU 密集要 worker_threads'],
+            ['**tRPC-Go / gRPC-Go**', 'CSP——每请求一 goroutine，channel 做请求上下文传递；tRPC-Cpp 用 fiber + Reactor'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: '为什么游戏用 Actor / 单线程 tick，不用协程池？',
+          body: '面试高频对答：\n\n**问**：为什么游戏后台不像互联网那样用协程池打 DB？\n**答**：\n1. **状态强耦合**：一个玩家的血量、buff、背包是**共享可变状态**；协程 + 锁比单线程 tick 慢（锁争用 + cache 冷）；单 tick 天生串行\n2. **AOE / 联动**：一次 AOE 可能改 100 个玩家状态，跨协程锁**排列组合就是死锁的温床**\n3. **确定性**：同 seed 同输入 → 同结果——录像回放、跨服校验都靠这个；协程调度非确定，无法保证\n4. **瓶颈在 CPU 计算**：技能公式、寻路、AI，不是 IO；**协程收益不大**\n\n**Actor 化拆分**：世界服→场景 actor→玩家 actor；跨场景交互（组队邀请、跨服匹配）走消息 + 中央路由。',
+        },
+        {
+          kind: 'md',
+          title: 'Reactor 家族选型',
+          body: '- **单 Reactor 单线程**：连接数 <1w、业务极轻——**Redis 5** 就够；一个 event loop 干完所有\n- **单 Reactor 多线程**：**不推荐**——read/write 仍在 event loop 线程，容易撞瓶颈\n- **主从 Reactor**：**通用生产选择**——Netty/Nginx/Envoy 都是；连接数几十万无压力\n- **Reactor + IO 多线程**（Redis 6）：只把网络 IO 拆多线程，**命令执行仍单线程**——保原子性又提高吞吐\n- **Proactor (io_uring)**：**新贵**——Linux 5.1+，把系统调用批量提交、批量收结果，减少 syscall 次数；**ScyllaDB / Redpanda / Envoy 新版**都在用',
+        },
+        {
+          kind: 'md',
+          title: '同步 vs 异步 API 设计',
+          body: '- **同步 API**（<code>String read()</code>）：调用方好写；但**要么阻塞线程**（浪费），**要么让调用方跑在协程里**（Go 天然做到；Java 靠虚拟线程 Loom 补）\n- **异步 API**（<code>Future&lt;String&gt; readAsync()</code> / <code>callback(err, data)</code>）：不阻塞线程；但要处理 **callback hell**、**取消传播**、**背压**\n- **async/await**：语法糖——把异步写成同步风格；底下仍是状态机 + 回调\n- **响应式（Reactor Pattern in Reactive Streams / RxJava）**：**Publisher/Subscriber + 背压 request(n)**——比裸 callback 多了操作符和背压协议',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'Reactor 事件循环慢回调堵住',
+          body: '- **典型症状**：一个 handler 里跑了 10ms 的 JSON 解析或加密——**整个 event loop 阻塞**，连接超时雪崩\n- **根因**：Reactor 的核心假设是「所有回调都很快」；破坏就完蛋\n- **填坑**：\n  1. CPU 密集操作**扔独立线程池**（Netty 的 <code>DefaultEventExecutorGroup</code>、Node 的 <code>worker_threads</code>）\n  2. **切分大回调**——用 <code>setImmediate</code>/<code>setTimeout(0)</code> 让 loop 有喘息\n  3. 观测 event loop 延迟（Node 的 <code>perf_hooks.monitorEventLoopDelay</code>、Netty 的 <code>DefaultEventLoop</code> 指标），**慢回调 P99 > 1ms 就是警报**',
+        },
+        {
+          kind: 'md',
+          title: 'Actor 邮箱堆积',
+          body: '- **场景**：一个热点 actor（大主播/公会 boss）每秒收 10w 消息，处理只 1w/s → 邮箱疯长 → 内存 OOM\n- **填坑**：\n  1. **有界邮箱**：Akka <code>bounded-mailbox</code>、Erlang <code>process_flag(message_queue_data)</code>——满了走策略：**丢**、**降级**、**背压 (让发送方阻塞)**\n  2. **分片**：热点 actor 一拆多——按玩家 ID hash 分 N 个子 actor，前面加路由 actor\n  3. **优先队列**：区分「必处理」和「可丢弃」（心跳可丢，交易必处理）\n  4. **背压反馈**：让上游看到邮箱长度，主动降速',
+        },
+        {
+          kind: 'md',
+          title: 'CSP channel 泄漏与死锁',
+          body: '- **场景 1（泄漏）**：goroutine 阻塞在无缓冲 channel 上永不返回——因为发送方已崩溃/超时退出，接收方永远等\n  - 修复：**永远配 <code>context.Context</code>**：<code>select { case v := &lt;-ch: ... case &lt;-ctx.Done(): return }</code>\n- **场景 2（死锁）**：A 写 <code>ch1</code> 等 B 读，B 写 <code>ch2</code> 等 A 读，两边**同时无缓冲发送**\n  - 修复：**发送方之间约定顺序**，或用**带缓冲 channel**，或用 <code>select</code> 加 <code>default</code> 兜底\n- **场景 3（closed panic）**：往已关闭的 channel 写 → panic\n  - 修复：**发送方 close**（唯一发送方原则）；接收方用 <code>v, ok := &lt;-ch</code> 检查关闭',
+        },
+        {
+          kind: 'md',
+          title: 'Event Loop starvation（微任务饿死宏任务）',
+          body: '- **场景**：<code>Promise.resolve().then(loop)</code> 里递归 <code>then</code>——微任务队列永远有活，宏任务（timer / IO）永远等不到\n- **表现**：Node 服务响应停滞，但 CPU 100%\n- **修复**：**长循环用 <code>setImmediate</code> 让出**（进宏任务队列）；或用 <code>await new Promise(r =&gt; setImmediate(r))</code>\n- **通用规则**：微任务只做**极短同步收尾**，别放实际业务',
+        },
+        {
+          kind: 'md',
+          title: 'Master-Worker 惊群与不均衡',
+          body: '- **老内核惊群**：多 worker 共享 listen fd，一个连接来 → **所有 worker 被唤醒**，只有一个成功 <code>accept</code>，其它白醒\n  - 现代 Linux 3.9+：**<code>SO_REUSEPORT</code>** 每 worker 独立 listen，内核层负载均衡；Nginx <code>reuseport on;</code>\n- **worker 不均衡**：某 worker 卡在慢连接，其它闲——观察 <code>nginx status</code> / prometheus 每 worker 的 accept 数\n  - 填坑：短连接场景 <code>SO_REUSEPORT</code> 天然均衡；长连接得配**主动断连或 conn 均衡**（HAProxy/L4 层）',
+        },
+        {
+          kind: 'md',
+          title: 'Pub/Sub 消息丢失与顺序',
+          body: '- **Redis Pub/Sub 丢消息**：订阅者断连再连，中间发布的**没了**——因为 Redis Pub/Sub 是**内存瞬时广播**，无历史\n  - 填坑：换 **Redis Streams**（有 offset）或 **Kafka**\n- **Kafka 分区顺序 vs Topic 顺序**：**同一 partition 有序，跨 partition 无序**——按业务 key hash 到同一 partition（同用户订单打一 partition）\n- **Consumer group 重复消费**：consumer crash 前没 commit offset → rebalance 后新 consumer 从上次 commit 处重放\n  - 填坑：**下游必须幂等**（订单 ID 唯一 + 数据库 upsert）',
+        },
+        {
+          kind: 'md',
+          title: 'SEDA / Pipeline 队列爆掉',
+          body: '- **典型症状**：某个 stage 处理慢 → 前置 stage 队列越堆越长 → 内存 OOM 或超时雪崩\n- **填坑**：\n  1. **有界队列 + 背压**：Netty <code>ChannelOption.WRITE_BUFFER_WATER_MARK</code>、Reactive Streams <code>request(n)</code>\n  2. **限流**：入口层拒绝新请求（限流器主题里的令牌桶）\n  3. **观测**：每 stage 队列深度打指标；P95 队列长度是核心信号\n  4. **降级**：非核心 stage 直接丢（按业务优先级）',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '面试话术：把设计模型和实际系统绑一起',
+          body: '**别只答概念**，一定要把模型和你实际做过的系统绑起来讲：\n\n- 「我做过的**游戏世界服是 Actor 模型 + 单 tick 循环**——每玩家一个 actor 独占状态，跨玩家操作走消息，避开锁；瓶颈在 CPU 而不是 IO」\n- 「**业务代理 platpxy 是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」\n- 「**NZMesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」\n- 「**paypxy 支付回调是 Pipeline + 幂等**——米大师 → 验签 → 幂等四道闸 → RPC 转 mallsvrd 发货，每级失败都能重放」',
+        },
+        {
+          kind: 'md',
+          title: '模型组合而非二选一',
+          body: '真实系统**从来不是单一模型**，都是组合：\n\n- **Nginx**：Master-Worker（进程模型）+ 每 worker 内 Reactor（IO 模型）\n- **Netty**：主从 Reactor + Pipeline（业务模型）+ 可选 EventExecutor 线程池（Half-Sync/Half-Async）\n- **Erlang OTP**：Actor（进程模型）+ Supervisor Tree（监督模型）+ gen_server/gen_statem（行为模式）\n- **Kafka Broker**：Reactor（网络层 SocketServer）+ Master-Worker（KafkaRequestHandler 池）+ Pub/Sub（协议层）+ 顺序日志（存储层）\n- **Envoy**：主从 Reactor + Filter Chain（Pipeline）+ xDS 事件驱动配置更新（Pub/Sub）',
+        },
+        {
+          kind: 'md',
+          title: '一句话面试反应表',
+          body: '- **看到「Nginx 为什么快」→ 想到**：Master-Worker + 每 worker Reactor（epoll）+ SO_REUSEPORT + zero-copy sendfile\n- **看到「Erlang 为什么高可用」→ 想到**：Actor + 独立堆消息拷贝 + Supervisor Tree + let-it-crash + 热更代码\n- **看到「Go 并发模型」→ 想到**：CSP（不是 Actor）+ GMP 调度 + channel 是一等对象 + <code>select</code> 多路\n- **看到「Redis 单线程为什么快」→ 想到**：Reactor + 内存 + IO 多路复用 + 单线程串行化免锁\n- **看到「Node.js 为什么适合 IO」→ 想到**：单线程 Event Loop + libuv 线程池 + 微任务/宏任务；CPU 密集要 worker_threads\n- **看到「同步 vs 异步 vs 阻塞 vs 非阻塞」→ 想到**：两个正交维度 + 四象限 + Linux epoll 是同步非阻塞而非异步\n- **看到「消息队列选型」→ 想到**：Kafka（日志式，可回放，分区有序）vs RabbitMQ（AMQP 语义，路由复杂）vs Redis Streams（轻量，consumer group）\n- **看到「背压怎么做」→ 想到**：channel 有界 + 阻塞发送 / Reactive Streams request(n) / 限流器 / 有损丢弃',
+        },
+        {
+          kind: 'md',
+          title: '一句话总结每个模型的「杀手场景」',
+          body: '- **Reactor**：**单机极高 IO 并发**（Nginx / Redis）——用户态串行化免锁\n- **Proactor / io_uring**：**syscall 密集**（数据库、代理、日志系统）——批量提交批量收\n- **Actor**：**状态强耦合 + 分布式**（游戏 / 电信 / 金融）——每状态独立 actor 免锁\n- **CSP**：**通用后台业务**（Go 生态）——channel 一等公民、易读易组合\n- **Event Loop**：**IO 密集单进程**（Node、GUI）——单线程避免锁 + 简单心智模型\n- **Master-Worker**：**故障隔离 + 多核利用**（Nginx / Gunicorn）——一个 worker 崩不影响别的\n- **Pipeline / SEDA**：**流式加工 + 分级限流**（Netty ChannelPipeline / ETL）——每级独立扩缩\n- **Pub/Sub**：**解耦发布方与订阅方**（Kafka / Redis）——事件驱动架构核心',
+        },
+      ],
+    },
+    sources: ['综合整理：Erlang/Akka/Go 官方文档、Nginx/Netty/Redis 源码、《The Reactive Manifesto》、Doug Lea POSA2、Matt Welsh SEDA 论文（2026-07）'],
+  },
+
+  // =============================================================
+  // 12. RELEASE-STRATEGY (K8s 灰度/金丝雀/蓝绿/A-B/Shadow)
+  // =============================================================
+  {
+    id: 'release-strategy',
+    title: '灰度发布 · Canary / BlueGreen / A-B / Shadow',
+    icon: '🚦',
+    tagline: 'K8s 内建 RollingUpdate 只是起点 · 真正的生产要 Canary + 自动指标验收 + 一键回滚',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '一句话地图',
+        body: '**Canary（金丝雀）= 按流量比例逐步放量**、**BlueGreen（蓝绿）= 双环境瞬时切换**、**A-B = 按用户特征分流做业务实验**、**Shadow（影子）= 复制流量不返回**。四种模型正交组合，落地靠 <code>Deployment</code> + Service Mesh / Ingress 权重 + Argo Rollouts / Flagger 自动化。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'table',
+          title: '六大发布策略正面对比',
+          header: ['策略', '一句话', '停机', '回滚速度', '需要基础设施', '典型场景'],
+          rows: [
+            ['**Recreate**', '先杀老 Pod 再拉新 Pod', '**有**（有窗口期）', '重跑一次', 'K8s 原生', '开发环境 / 强状态单实例服务'],
+            ['**RollingUpdate**', 'K8s 默认，按 <code>maxSurge/maxUnavailable</code> 逐批替换', '无', '慢（要滚回旧版）', 'K8s 原生', '所有无状态服务的默认起点'],
+            ['**BlueGreen（蓝绿）**', '两套完整环境 (Blue=旧 / Green=新)，Service selector 切换', '无', '**极快**（selector 切回）', '两倍资源 + Ingress/Service 切换', '版本跨度大、要秒级回滚、不能混跑'],
+            ['**Canary（金丝雀）**', '只放 1%/5%/25%/50%/100% 流量到新版', '无', '快', '流量分流（Ingress/Mesh 权重）', '生产标配，配指标自动放量'],
+            ['**A-B Testing**', '按 header/cookie/UID 把特定用户导到新版', '无', '快', '流量按规则路由（Mesh <code>match</code>）', '产品实验、灰度看效果、大主播定向'],
+            ['**Shadow（影子）/ Traffic Mirroring**', '**复制**流量到新版但**不返回**响应', '无', '零风险', 'Mesh mirror / GoReplay', '压测新版真实负载、Diff 校验、协议兼容验证'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'K8s 原生四种策略字段',
+          body: '```yaml\napiVersion: apps/v1\nkind: Deployment\nspec:\n  strategy:\n    type: RollingUpdate           # 或 Recreate\n    rollingUpdate:\n      maxSurge: 25%              # 最多超出 replicas 多少（越大越快、越费资源）\n      maxUnavailable: 25%        # 最多允许多少不可用（生产建议 0，只 surge 不 unavailable）\n  minReadySeconds: 30            # 新 Pod ready 后再等 30s 才算真的可用（防抖）\n  progressDeadlineSeconds: 600   # 10 分钟未完成 → 标为 failed\n  revisionHistoryLimit: 10       # 保留 10 个旧 ReplicaSet 用于回滚\n```\n**关键 5 个字段**：**maxSurge / maxUnavailable / minReadySeconds / progressDeadlineSeconds / revisionHistoryLimit**——面试爱一个个抠。\n\n**回滚**：<code>kubectl rollout undo deployment/foo</code>；<code>kubectl rollout history</code> 查看版本；<code>kubectl rollout status</code> 看进度。',
+        },
+        {
+          kind: 'md',
+          title: 'Canary 的三种实现层次（生产由浅到深）',
+          body: '**层次 1 · 副本比例 Canary**（最土的做法）\n- 部署 <code>foo-stable</code>（9 副本）+ <code>foo-canary</code>（1 副本），共用同一个 Service selector\n- 流量比例 = 副本比例 = 10%\n- **缺点**：粒度粗（1/10、2/10）；扩缩容和权重耦合\n\n**层次 2 · Ingress 权重 Canary**（中等成熟度）\n- Nginx-Ingress <code>nginx.ingress.kubernetes.io/canary: "true"</code> + <code>canary-weight: "10"</code>\n- APISIX / Higress / Traefik 都有类似 annotation\n- 支持按 header/cookie 定向：<code>canary-by-header: X-Canary</code>\n- **缺点**：只在南北流量入口生效；东西向服务间调用无法灰度\n\n**层次 3 · Service Mesh 权重 Canary**（生产标配）\n- Istio <code>VirtualService</code> + <code>DestinationRule</code>：**按 subset 分流**\n- 支持**任意百分比**、**多维匹配**（header/uri/uid）、**东西向流量**\n- 配合 **Argo Rollouts / Flagger 自动化**：观测指标 → 达标自动放量 → 不达标自动回滚',
+        },
+        {
+          kind: 'code',
+          title: 'Istio Canary（VirtualService + DestinationRule）',
+          body: '# 1) DestinationRule 声明两个 subset\napiVersion: networking.istio.io/v1beta1\nkind: DestinationRule\nmetadata: { name: foo }\nspec:\n  host: foo\n  subsets:\n    - name: stable\n      labels: { version: v1 }\n    - name: canary\n      labels: { version: v2 }\n---\n# 2) VirtualService 权重分流\napiVersion: networking.istio.io/v1beta1\nkind: VirtualService\nmetadata: { name: foo }\nspec:\n  hosts: [foo]\n  http:\n    # 优先规则：header 有 X-Canary=true 全走 canary\n    - match:\n        - headers: { X-Canary: { exact: "true" } }\n      route:\n        - destination: { host: foo, subset: canary }\n    # 兜底：按权重分流\n    - route:\n        - destination: { host: foo, subset: stable }\n          weight: 90\n        - destination: { host: foo, subset: canary }\n          weight: 10',
+        },
+        {
+          kind: 'code',
+          title: 'Nginx-Ingress Canary annotation',
+          body: '# 主 Ingress\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: foo-stable\nspec:\n  rules:\n    - host: foo.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend: { service: { name: foo-stable, port: { number: 80 } } }\n---\n# Canary Ingress（同 host 同 path）\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: foo-canary\n  annotations:\n    nginx.ingress.kubernetes.io/canary: "true"\n    nginx.ingress.kubernetes.io/canary-weight: "10"     # 10% 走 canary\n    # 或按 header 定向\n    # nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"\n    # nginx.ingress.kubernetes.io/canary-by-header-value: "true"\n    # 或按 cookie\n    # nginx.ingress.kubernetes.io/canary-by-cookie: "canary"\nspec:\n  rules:\n    - host: foo.example.com\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend: { service: { name: foo-canary, port: { number: 80 } } }',
+        },
+        {
+          kind: 'md',
+          title: 'BlueGreen（蓝绿）落地范式',
+          body: '**做法**：\n- 部署 <code>foo-blue</code>（当前生产，label <code>version: blue</code>）\n- 拉起 <code>foo-green</code>（新版本，label <code>version: green</code>）\n- Service selector 从 <code>version: blue</code> 改成 <code>version: green</code> → **瞬时切换**\n- 观察一阵 → 出问题 selector 切回 <code>blue</code>\n\n**优点**：**回滚极快**（改 selector 一秒生效）、新版可预热预压测、DB 未切换时零风险\n**缺点**：\n- **两倍资源**——生产大集群成本高\n- **DB / 缓存 / 消息队列共享**——新版 schema 变更时旧版可能崩\n- **不适合超长事务**——切换瞬间进行中的请求会异常\n\n**常见变体**：\n- **蓝绿 + Service Mesh 分流**：不改 selector，改 <code>VirtualService</code> weight 从 blue=100/green=0 → 0/100，粒度更细\n- **蓝绿 + DNS 切换**：跨集群蓝绿时改 DNS，靠 TTL；**不推荐**（DNS 缓存不可控）',
+        },
+        {
+          kind: 'md',
+          title: 'A-B Testing 与 Canary 的差别（面试爱问）',
+          body: '**都是分流，但目的不同**：\n\n| 维度 | Canary | A-B Testing |\n|---|---|---|\n| **目的** | **技术验证**：新版会不会崩 | **业务验证**：哪个方案效果好 |\n| **分流依据** | **随机比例**（10% 流量） | **用户特征**（VIP / 地区 / cohort） |\n| **持续时间** | **短**（几分钟到几小时） | **长**（几天到几周，等统计显著） |\n| **成功指标** | 错误率、延迟、SLO | 转化率、点击率、留存 |\n| **失败动作** | **自动回滚** | 保留数据，选优胜者上线 |\n\n**实操组合**：先 Canary 技术验证（确保新版不崩），通过后再全量上线；同时对新功能开 A-B 实验组（部分用户可见）——**Canary 保下限，A-B 求上限**。',
+        },
+        {
+          kind: 'md',
+          title: 'Shadow / Traffic Mirroring（影子流量）',
+          body: '**做法**：真实请求同时**复制一份**发到新版，**新版响应被丢弃**——只用于观测。\n\n**Istio 里就一行**：\n```yaml\nhttp:\n  - route:\n      - destination: { host: foo, subset: stable }\n    mirror: { host: foo, subset: canary }\n    mirrorPercentage: { value: 100 }   # 全量镜像\n```\n\n**用途**：\n- **性能压测**：新版扛得住真实负载吗\n- **协议兼容验证**：新版对同样的输入返回一致吗（**Diff 测试**）\n- **数据兼容**：新版写 DB 后老版本还能读吗（**要写独立 DB / 只读 mirror**）\n\n**坑**：\n- 如果新版**有副作用**（写 DB、发短信、扣费）→ 会**双写、双发、双扣**！Shadow **必须只用于纯查询链路**，或用 Sandbox DB 隔离\n- Mirror 请求打不满新版容量——因为响应被丢，请求排队少；不能替代压测',
+        },
+        {
+          kind: 'md',
+          title: 'Argo Rollouts vs Flagger vs Kruise Rollout',
+          body: '**都是把「Canary + 自动指标验收 + 自动回滚」封装成 CRD**，K8s 原生 <code>Deployment</code> 做不到。\n\n| 工具 | 出品 | 特点 | 适合 |\n|---|---|---|---|\n| **Argo Rollouts** | Argo（Intuit + CNCF） | **CRD 替代 Deployment**（<code>Rollout</code> 类型）；GUI 直观；步骤化 <code>steps: [-setWeight: 20, -pause: {duration: 5m}, ...]</code> | **GitOps + Argo CD** 生态首选 |\n| **Flagger** | Weaveworks + Flux | **不改 Deployment**，靠额外 <code>Canary</code> CR 编排；**Prometheus 指标自动分析**（Success Rate / P99 latency） | **Flux 生态**、深度自动化指标验收 |\n| **Kruise Rollout** | 阿里 OpenKruise | **原地升级**（Pod 不重建、只换镜像），启动更快；**兼容原生 <code>Deployment</code>**，无侵入 | **国内大厂**、需要原地升级和无侵入 |\n\n**共同能力**：按步骤放量（1%→5%→25%→50%→100%）、指标不达标自动回滚、支持 Istio/Nginx/Traefik/AppMesh/SMI 多种流量提供方。',
+        },
+        {
+          kind: 'code',
+          title: 'Argo Rollouts 完整清单',
+          body: 'apiVersion: argoproj.io/v1alpha1\nkind: Rollout\nmetadata: { name: foo }\nspec:\n  replicas: 10\n  selector: { matchLabels: { app: foo } }\n  strategy:\n    canary:\n      canaryService: foo-canary       # 独立 canary Service\n      stableService: foo-stable\n      trafficRouting:\n        istio:\n          virtualService: { name: foo-vs }\n      steps:\n        - setWeight: 5\n        - pause: { duration: 2m }\n        - analysis:                    # ← 关键：自动化指标验收\n            templates:\n              - templateName: success-rate\n            args:\n              - name: service-name\n                value: foo-canary\n        - setWeight: 20\n        - pause: { duration: 5m }\n        - setWeight: 50\n        - pause: { duration: 10m }\n        - setWeight: 100\n---\napiVersion: argoproj.io/v1alpha1\nkind: AnalysisTemplate\nmetadata: { name: success-rate }\nspec:\n  args: [{ name: service-name }]\n  metrics:\n    - name: success-rate\n      interval: 30s\n      successCondition: result[0] >= 0.95\n      failureLimit: 3\n      provider:\n        prometheus:\n          address: http://prometheus.monitoring.svc:9090\n          query: |\n            sum(irate(istio_requests_total{destination_service="{{args.service-name}}",response_code!~"5.."}[2m]))\n            /\n            sum(irate(istio_requests_total{destination_service="{{args.service-name}}"}[2m]))',
+        },
+        {
+          kind: 'md',
+          title: '游戏后台的灰度：不一样的思路',
+          body: '游戏后台**不能用 Ingress 权重**灰度——玩家会话强状态、重连必须落原服。做法：\n\n- **按大区 / 服务器分批**：先灰度 1 个测试区、再 1 个休闲区、再全量国服；每级观察 24h+\n- **按玩家 UID 白名单**：登录服路由时判断 <code>uid % 100 &lt; 5</code> 走新版；**必须持久化在玩家档案**，防止重连不一致\n- **按功能开关（Feature Flag）**：新逻辑用开关包裹，配置中心下发；灰度就是**开关的百分比放量**（不换镜像）\n- **DS 战斗服的滚动升级**：一台一台重启，玩家断线自动匹配到别的战斗服；**关键：<code>preStop</code> 里等玩家全部退出再 SIGTERM**\n- **网关按分区导流**：跨服匹配、跨服聊天走**中央路由**，路由表配置化；灰度=改路由表',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '选型公式：先看状态，再看回滚成本',
+          body: '```\n服务状态？\n  ├─ 有状态（DB / 队列 / 强会话） → BlueGreen（切换瞬时）或 按分片灰度\n  └─ 无状态 →\n        版本跨度？\n          ├─ 大跨度（协议不兼容、大改） → BlueGreen（避免混跑）\n          └─ 小跨度 →\n                需要按用户特征？\n                  ├─ 是 → A-B（Mesh header 匹配）\n                  └─ 否 → Canary（比例放量 + 自动指标）\n\n有副作用？（写 DB / 发短信）\n  ├─ 是 → 不能 Shadow；用 Canary 小流量\n  └─ 否 → Shadow 零风险验证\n```',
+        },
+        {
+          kind: 'kv',
+          title: '不同规模的落地路径',
+          items: [
+            ['**创业期 / 小集群**', 'K8s 原生 <code>RollingUpdate</code> + <code>maxUnavailable: 0</code> + <code>minReadySeconds: 30</code>——够用了，别过度工程'],
+            ['**中等规模、有 Ingress**', '**Nginx-Ingress canary annotation** 起步——按 weight/header/cookie 分流，无需引入 Mesh'],
+            ['**大规模、多服务、东西向流量灰度**', '**Istio + Argo Rollouts / Flagger**——CR 编排、Prometheus 自动验收、GitOps 集成'],
+            ['**要秒级回滚**', 'BlueGreen（Service selector 切换）；准备好 DB schema 双向兼容'],
+            ['**做产品实验**', 'A-B + Feature Flag（LaunchDarkly / Unleash / GrowthBook）——发布与实验解耦']
+          ],
+        },
+        {
+          kind: 'md',
+          title: '「灰度 ≠ 随便发」——四道验收关',
+          body: '真正生产级的 Canary 每一步之间都有验收：\n\n1. **健康检查**：<code>readinessProbe</code> 必须严格；readyness 通过 ≠ 业务可用（要 warm-up 池、连数据库）\n2. **烟雾测试（Smoke Test）**：小流量（1%）跑 5 分钟，看错误率是否高于 stable\n3. **黄金指标 SLI**：**成功率 / 延迟 P99 / 饱和度 / 错误码分布** 四项必看；**任一项劣化 3σ 立即回滚**\n4. **业务指标**：核心业务成功率（下单成功率、登录成功率）——运维层看不到，需要业务打点\n\n**Argo Rollouts 的 <code>AnalysisTemplate</code> 就是把这些指标写成 PromQL，自动化决策**。',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'Endpoints 摘除滞后 → 用户看到 502',
+          body: '**场景**：Pod 收到 SIGTERM 后立即退出，但 kube-proxy 还没同步 iptables 规则 → 请求打到已死 Pod → 502。\n\n**根因**：<code>SIGTERM</code> 与 <code>Endpoints</code> 更新是**并发**的，不是串行——K8s 只保证「最终一致」，不保证「先摘再杀」。\n\n**填坑**（生产必备）：\n```yaml\nspec:\n  containers:\n    - name: app\n      lifecycle:\n        preStop:\n          exec:\n            command: ["sh", "-c", "sleep 15"]     # 等 15s 让 Endpoints 传播\n      # 或 HTTP：让业务先关闭 accept 新连接、把 in-flight 处理完再退出\n  terminationGracePeriodSeconds: 60             # 总优雅期，> preStop + 业务 drain 时间',
+        },
+        {
+          kind: 'md',
+          title: '会话粘性打破 Canary',
+          body: '**场景**：Canary 5% 流量放量，但用户登录后建立了长连接（WebSocket / SSE）→ 一旦断连重连，可能被路由到 stable 或反过来 → 用户体验断层\n\n**填坑**：\n- **粘性会话**：Nginx <code>ip_hash</code> / Envoy consistentHash / Session Affinity（<code>service.spec.sessionAffinity: ClientIP</code>）\n- **明确 Canary 用户**：<code>X-Canary</code> header 或 cookie 一次性打上，之后请求都带；避免随机分流带来的抖动\n- **无状态化**：Session 存 Redis / JWT，任意 Pod 都能处理——从根上避免粘性问题',
+        },
+        {
+          kind: 'md',
+          title: 'DB Schema 变更时 BlueGreen 崩',
+          body: '**场景**：新版加字段 <code>ALTER TABLE ADD COLUMN</code>，蓝绿切换后回滚 blue → blue 老代码读到未知字段崩。\n\n**填坑**（**双向兼容**是铁律）：\n1. **只加不删**（Additive Migration）：新字段 nullable / default，旧代码忽略即可\n2. **两阶段删列**：先发布「不再写此列」的版本 → 观察一周 → 再删列\n3. **枚举扩展**：只加值不改语义；新枚举旧代码要有 fallback 分支\n4. **索引变更**：低峰期 online DDL；MySQL 用 <code>pt-online-schema-change</code> / <code>gh-ost</code>；PostgreSQL 用 <code>CREATE INDEX CONCURRENTLY</code>',
+        },
+        {
+          kind: 'md',
+          title: 'Feature Flag 腐烂',
+          body: '**场景**：一年前的实验开关还在代码里，if-else 满天飞，谁都不敢删。\n\n**填坑**：\n- **每个 flag 建单**：**上线时创建工单，实验结束时删除**；用 LaunchDarkly / Unleash 有 flag 生命周期管理\n- **flag 有过期时间**：过期后开关关闭并**告警提醒清理**\n- **静态代码扫描**：CI 里跑 flag 扫描器，**超过 30 天的 flag 阻断合并**\n- **文档化**：每个 flag 一个 owner + 目标状态（100% ON / 100% OFF）',
+        },
+        {
+          kind: 'md',
+          title: 'Canary 假阳性（老版本本来就有毛刺）',
+          body: '**场景**：Canary 错误率 0.5% 触发回滚，但一查 stable 也是 0.5%——**新版本没问题，是基线本来就烂**。\n\n**填坑**：\n- **对比而非绝对阈值**：Argo Rollouts / Flagger 支持**对照组**（<code>baseline</code>）——新版只要不比老版差就通过\n- **多样本对照**：新版 vs 老版都取 5 分钟窗口，做 **t 检验 / Mann-Whitney**\n- **观察期够长**：低流量服务 1 分钟指标不显著，要 10~30 分钟窗口',
+        },
+        {
+          kind: 'md',
+          title: '多集群 / 多可用区不同步',
+          body: '**场景**：南京集群 Canary 已 100%，上海集群还是 stable——用户跨机房访问看到不一致。\n\n**填坑**：\n- **中心化编排**：Argo CD ApplicationSet 统一推所有集群；Flagger 每集群独立分析但有全局阈值\n- **按可用区分批**：先南京 25% → 观察 → 再上海 25% → 逐步汇合\n- **DNS / 就近路由感知**：跨机房用户尽量粘同一版本（用 <code>X-Version</code> header 记住）',
+        },
+        {
+          kind: 'md',
+          title: 'Sidecar / iptables 缓存导致新版本被跳过',
+          body: '**场景**：Istio Envoy 缓存了旧的 <code>DestinationRule</code> subset，Canary 权重改了不生效。\n\n**填坑**：\n- **改 subset 后重启 Envoy**（sidecar hot reload 不完全）\n- **用 Argo Rollouts 的 <code>trafficRouting</code>**——它会强制 push xDS 更新\n- **kube-proxy iptables 模式**规则数暴涨 → 切 IPVS 或 Cilium eBPF',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '生产灰度 SOP（八步）',
+          body: '1. **代码合入前**：单元测试 + 集成测试全绿；DB 变更**双向兼容**\n2. **镜像构建 + 签名**：CI 打 tag、镜像扫描（Trivy）、签名（cosign）\n3. **预发环境验证**：功能测试 + 契约测试（Pact）+ 性能基线\n4. **Canary 1%**：<code>setWeight: 1</code>，pause 5 分钟；观测错误率 / 延迟 / 业务指标\n5. **Canary 5% → 25% → 50%**：每级 pause + 自动指标验收（<code>AnalysisTemplate</code>）\n6. **100% 放量**：<code>setWeight: 100</code>；旧 ReplicaSet 保留 24h 备回滚\n7. **观察期 24h**：告警值班；**任何 Sev1 事件立即 <code>rollout undo</code>**\n8. **归档**：release notes、变更单、指标截图存档',
+        },
+        {
+          kind: 'md',
+          title: '面试话术：把发布策略绑到实际系统',
+          body: '别答概念——绑到你做过的系统：\n\n- 「**业务代理 platpxy** 是 3 副本 + <code>maxSurge: 1, maxUnavailable: 0</code> 的滚动升级；**支付回调 paypxy** 因为米大师有幂等重试，用 Canary 5% + 幂等 4 道闸兜底」\n- 「**mallsvrd 商城**用 <code>preStop: sleep 15</code> 加**优雅退出**：先关闭 accept、把 in-flight 支付处理完；否则回调打到已死 Pod 会 502」\n- 「**NZMesh 是 DaemonSet + hostNetwork**，**没法用 Ingress 权重灰度**——按节点批次滚动，一次 5 台，观察 30 分钟」\n- 「**游戏 DS 战斗服**按大区分批：测试区 → 休闲区 → 匹配区，每批间隔 24h；<code>preStop</code> 等玩家全退出」\n- 「**Feature Flag** 我们用配置中心下发，一个开关一个业务开关，实验结束**立刻清理**避免代码腐烂」',
+        },
+        {
+          kind: 'md',
+          title: '一句话反应表',
+          body: '- **看到「怎么发布」→ 想到**：Recreate / RollingUpdate / BlueGreen / Canary / A-B / Shadow 六种，先问状态再选\n- **看到「怎么灰度」→ 想到**：K8s 副本比例（土）→ Ingress annotation（中）→ Mesh + Argo Rollouts（生产）\n- **看到「怎么回滚」→ 想到**：<code>kubectl rollout undo</code>（RollingUpdate）/ Service selector 切回（BlueGreen）/ Argo Rollouts abort\n- **看到「怎么防止 502」→ 想到**：<code>preStop</code> sleep + 优雅退出 + <code>terminationGracePeriodSeconds</code>\n- **看到「怎么做实验」→ 想到**：A-B 按 header/cookie/UID 分流 + Feature Flag + 统计显著性检验\n- **看到「怎么验证新版性能」→ 想到**：Shadow / Traffic Mirroring（无副作用链路）+ Diff 测试\n- **看到「Canary 自动化」→ 想到**：Argo Rollouts / Flagger + Prometheus AnalysisTemplate + 对照组基线\n- **看到「DB 变更 + 灰度」→ 想到**：Additive-only + 两阶段删列 + Online DDL（gh-ost / pt-osc）',
+        },
+        {
+          kind: 'md',
+          title: '每种策略的「杀手场景」',
+          body: '- **Recreate**：**开发环境 / 单实例强状态服务**（数据库主节点）\n- **RollingUpdate**：**默认无脑用**——90% 场景够了，配 <code>maxUnavailable: 0</code>\n- **BlueGreen**：**协议大跨度、要秒级回滚**——但准备两倍资源、DB 双向兼容\n- **Canary**：**生产标配**——每个业务变更都该走\n- **A-B**：**产品实验**——业务效果验证，与技术发布解耦\n- **Shadow**：**只用于查询链路**——写链路会双写；用于压测 / 协议 Diff\n- **游戏后台按分区/UID 灰度 + Feature Flag**：**强状态、长会话场景的独家答案**',
+        },
+      ],
+    },
+    sources: ['综合整理：K8s 官方文档、Argo Rollouts / Flagger / Kruise Rollout 官方指南、Istio Traffic Management、Nginx-Ingress annotations、Google SRE Book Ch.16（2026-07）'],
+  },
 ];
 </script>
 <script>window.__GUIDE_MODE__ = 'hub';</script>
@@ -2039,7 +2422,7 @@ window.__GUIDE_THEMES__ = [
 
   function renderSidebar(themes) {
     let html = '';
-    html += '<div class="brand">📖 面试复习中心<small>9 年后台 · 7 大专题</small></div>';
+    html += '<div class="brand">📖 面试复习中心<small>9 年后台 · ' + themes.length + ' 大专题</small></div>';
     html += '<h2>专题</h2><ul>';
     themes.forEach(t => {
       html += '<li><a href="#' + escapeHtml(t.id) + '" data-nav="' + escapeHtml(t.id) + '">' + escapeHtml(t.icon || '') + ' ' + escapeHtml(t.title) + '</a></li>';
@@ -2131,7 +2514,7 @@ window.__GUIDE_THEMES__ = [
     sidebar.innerHTML = renderSidebar(themes);
     let contentHtml = '';
     contentHtml += '<h1 class="doc-title">面试复习中心</h1>';
-    contentHtml += '<p class="doc-lede">9 年后台开发（3 年互联网 + 6 年游戏）· 7 大专题按 <strong>是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的</strong> 四段式组织。侧边栏可跳转，或直接向下滚动阅读。</p>';
+    contentHtml += '<p class="doc-lede">9 年后台开发（3 年互联网 + 6 年游戏）· ' + themes.length + ' 大专题按 <strong>是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的</strong> 四段式组织。侧边栏可跳转，或直接向下滚动阅读。</p>';
     themes.forEach(t => contentHtml += renderThemeBlock(t));
     contentHtml += '<div class="footer-note" id="footer-note"></div>';
     content.innerHTML = contentHtml;

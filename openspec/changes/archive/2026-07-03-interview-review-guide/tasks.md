@@ -46,3 +46,10 @@
 - [x] 6.3 手动挑 3 处技术校正回读一遍：Gossip 概念 vs 代码全连接广播、msc 走 TBus 共享内存而非 UDS、跨 DC "选 2 个中转"存疑——确保表述与桌面 md 校正清单一致。
 - [x] 6.4 首页页脚写"抽取自 `~/Desktop/*.md`，日期 2026-07-02，仓库路径 `/Users/marcopu/lab/interview/guide/`"。
 - [x] 6.5 `git status` 确认仅 `guide/` 目录新增；`git add guide/ openspec/changes/interview-review-guide/` 后由用户确认再 commit。
+
+## 7. 追加设计模型专题（2026-07-03）
+
+- [x] 7.1 在 `_themes.js` 与 `index.html` 内联 THEMES 中追加第 12 个专题 `design-model`（Actor / CSP / Reactor / Proactor / EventLoop / SEDA / Master-Worker / Leader-Follower / Pipeline / Pub-Sub / 同步异步阻塞非阻塞四象限），四段式已填齐。
+- [x] 7.2 由 `index.html` 派生 `theme-design-model.html`：仅切 `__GUIDE_MODE__` 为 `single`，注入 `__GUIDE_THEME_ID__ = "design-model"`，标题标签改为分册标题。
+- [x] 7.3 sidebar 里写死的 `7 大专题` 副标题改为动态 `themes.length + ' 大专题'`（首页与首页文档 lede）。
+- [x] 7.4 用 node 语法检查 + 数据结构 assert：12 项主题、design-model 四段各有内容。
