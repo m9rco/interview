@@ -45,6 +45,7 @@ export const sidebar = {
     {
       text: '有状态服务',
       children: [
+        '/game-infra/tcaplusdb.md',
         '/game-infra/stateful-migration.md',
         '/game-infra/stateful-recovery.md',
         '/game-infra/config-hot-reload.md',
