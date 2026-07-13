@@ -88,8 +88,8 @@ jobs:
         run: |
           coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
           coscmd upload -rs --ignore "*.html" \
-            -H "Cache-Control:public, max-age=31536000, immutable" \
+            -H '{"Cache-Control":"public, max-age=31536000, immutable"}' \
             docs/.vuepress/dist/ /
           coscmd upload -rs --include "*.html" \
-            -H "Cache-Control:public, max-age=60, must-revalidate" \
+            -H '{"Cache-Control":"public, max-age=60, must-revalidate"}' \
             docs/.vuepress/dist/ /
