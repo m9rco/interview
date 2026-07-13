@@ -1,4 +1,4 @@
-# 9 年后台经验归档 · VuePress 站点
+# 后台技术面试复习中心 · VuePress 站点
 # 用法：make <target>，或直接 make 查看帮助
 
 .DEFAULT_GOAL := help

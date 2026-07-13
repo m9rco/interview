@@ -147,7 +147,7 @@ sequenceDiagram
 - 接入层把 I/O 与逻辑解耦，逻辑服帧率稳定、后端可弹性伸缩。
 :::
 
-**相关专题**：[TBus 进程间通信总线](/game-infra/tbus.md) · [NZMesh 服务网格 × K8s](/game-infra/nzmesh-k8s.md) · [限流与熔断](/game-infra/ratelimit-circuitbreak.md)
+**相关专题**：[TBus 进程间通信总线](/game-infra/tbus.md) · [自研 Mesh 服务网格 × K8s](/game-infra/nzmesh-k8s.md) · [限流与熔断](/game-infra/ratelimit-circuitbreak.md)
 
 ## 内容来源
 

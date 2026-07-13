@@ -1,7 +1,7 @@
 {
   "name": "interview-experience-archive",
   "version": "1.0.0",
-  "description": "9 年后台经验归档 · 互联网/智能硬件后台 + 游戏局外后台",
+  "description": "后台技术面试复习中心 · 互联网/智能硬件后台 + 游戏基础架构 + 游戏业务",
   "private": true,
   "type": "module",
   "scripts": {

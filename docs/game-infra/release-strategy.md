@@ -407,7 +407,7 @@ spec:
 
 - 「**业务代理 platpxy** 是 3 副本 + `maxSurge: 1, maxUnavailable: 0` 的滚动升级；**支付回调 paypxy** 因为米大师有幂等重试，用 Canary 5% + 幂等 4 道闸兜底」
 - 「**mallsvrd 商城**用 `preStop: sleep 15` 加**优雅退出**：先关闭 accept、把 in-flight 支付处理完；否则回调打到已死 Pod 会 502」
-- 「**NZMesh 是 DaemonSet + hostNetwork**，**没法用 Ingress 权重灰度**——按节点批次滚动，一次 5 台，观察 30 分钟」
+- 「**自研 Mesh 是 DaemonSet + hostNetwork**，**没法用 Ingress 权重灰度**——按节点批次滚动，一次 5 台，观察 30 分钟」
 - 「**游戏 DS 战斗服**按大区分批：测试区 → 休闲区 → 匹配区，每批间隔 24h；`preStop` 等玩家全退出」
 - 「**Feature Flag** 我们用配置中心下发，一个开关一个业务开关，实验结束**立刻清理**避免代码腐烂」
 

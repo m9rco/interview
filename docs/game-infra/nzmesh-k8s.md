@@ -1,8 +1,8 @@
 ---
-title: NZMesh 服务网格 × K8s 部署
+title: 自研 Mesh 服务网格 × K8s 部署
 ---
 
-# NZMesh 服务网格 × K8s 部署
+# 自研 Mesh 服务网格 × K8s 部署
 
 自研服务网格 · 从 Consul 到全连接单跳广播 · 万级节点
 
@@ -10,7 +10,7 @@ title: NZMesh 服务网格 × K8s 部署
 
 ::: warning ⚠️ 校正清单（面试必带）
 1. **Gossip 是设计概念，未落地**：代码是"全连接网格 + 单跳全量广播"。无 W、无感染轮次、无随机邻居、收方不转发。
-2. **节点发现**：nzmesh C 代码只读 `host.txt`；K8s API / 北极星是 nzmeshpanel(Go) 的外部链路，负责把 IP 写进 host.txt。
+2. **节点发现**：自研 Mesh 的 C 代码只读 `host.txt`；K8s API / 北极星是 nzmeshpanel(Go) 的外部链路，负责把 IP 写进 host.txt。
 3. **本机通信**：msc 接业务是 **TBus 共享内存 channel**，**不是 UDS**。
 4. **跨 DC "选 2 个中转"**：代码只见"直连优先 (host_cache)"，独立实现未见，**存疑**。
 :::
@@ -22,9 +22,9 @@ title: NZMesh 服务网格 × K8s 部署
    ┌──────────────────────────────────┐
    │  Pod-1   Pod-2   ...   Pod-N      │
    │   └───────┴────┬─────────┘        │
-   │           本机 NZMesh ──► 跨机直连 │
+   │        本机 自研 Mesh ──► 跨机直连 │
    └──────────────────────────────────┘
-跨机调用：业务→msc→本机NZMesh→远端NZMesh→远端msc→远端业务
+跨机调用：业务→msc→本机自研 Mesh→远端自研 Mesh→远端msc→远端业务
 ```
 
 ```mermaid
@@ -32,10 +32,10 @@ flowchart LR
   subgraph NodeA[本机 NODE]
     P1[Pod-1] --> MSCA[msc]
     P2[Pod-N] --> MSCA
-    MSCA --> MA[本机 NZMesh]
+    MSCA --> MA[本机 自研 Mesh]
   end
   subgraph NodeB[远端 NODE]
-    MB[远端 NZMesh] --> MSCB[远端 msc] --> BIZ[远端业务]
+    MB[远端 自研 Mesh] --> MSCB[远端 msc] --> BIZ[远端业务]
   end
   MA -->|跨机直连| MB
 ```
@@ -57,7 +57,7 @@ flowchart LR
 - 广播 `nzmesh_heartbeat`：遍历 `hash_cache`（所有连接）逐个发；内部计数就叫 `broadcasts++`
 - 收包 `_nzmesh_heartbeat`：对每条实例只 `svr_heartbeat` 更新本地路由表，循环结束就 return，**无任何 re-broadcast**
 
-> **NZMesh 用 O(N) 连接换 O(1) 收敛跳数**；gossip 是用 O(W) 连接换 O(log N) 跳数——**取舍方向恰好相反**。
+> **自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数**；gossip 是用 O(W) 连接换 O(log N) 跳数——**取舍方向恰好相反**。
 
 ## 实现方案
 
@@ -121,7 +121,7 @@ spec.template.spec:
 
 1. 业务进程启动参数统一带 `--mesh=$host-ip$:8000`
 2. `$host-ip$` 来自 Downward API：所有工作负载注入 `HOST_IP <- status.hostIP`
-3. NZMesh DaemonSet `hostNetwork: true`，监听宿主机 `0.0.0.0:8000`，业务用 `HOST_IP:8000` **直接命中本机这台 mesh**，流量不走 Overlay
+3. 自研 Mesh DaemonSet `hostNetwork: true`，监听宿主机 `0.0.0.0:8000`，业务用 `HOST_IP:8000` **直接命中本机这台 mesh**，流量不走 Overlay
 
 ### 多集群 / 跨 DC 拓扑
 
@@ -178,7 +178,7 @@ TIMEOUT
 全互联的代价是连接数——但 TCP 是全双工，**两节点之间只需 1 条链路**，关键是"谁主动连"。
 
 - **朴素方案**"大 IP 连小 IP"：主动/被动连接数极度不均，CPU 倾斜
-- **NZMesh 方案**：**基于 IP 末位 bit 异或的"公认随机值"**——两个数相加奇偶各 50%，异或值双方算出必然一致且 0/1 均匀
+- **自研 Mesh 方案**：**基于 IP 末位 bit 异或的"公认随机值"**——两个数相加奇偶各 50%，异或值双方算出必然一致且 0/1 均匀
 
 ```c
 // nzmesh_main.c:149
@@ -205,13 +205,13 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 
 `_jump_consistent_hash`（`nzmesh_net.c:529`）：Google Jump Hash，64 位 LCG，**O(log n)、0 内存**，分布更均匀。实测"100 桶≈10M/s，1000 桶≈7.2M/s"。
 
-> **成立前提**：实例 ID 用**数字**标识（沿用 TBUSID）。字符串 ID 得建环 + 字符串 hash，性能差——这是 NZMesh 整体的性能基石。
+> **成立前提**：实例 ID 用**数字**标识（沿用 TBUSID）。字符串 ID 得建环 + 字符串 hash，性能差——这是自研 Mesh 整体的性能基石。
 
 ## 为什么别的选择不行
 
 ### 业界方案对比
 
-| 维度 | Istio | TBusPP-MESH（公司组件） | NZMesh |
+| 维度 | Istio | TBusPP-MESH（公司组件） | 自研 Mesh |
 | --- | --- | --- | --- |
 | 有状态服务 | 不支持 | 路由不完美，需再叠一层 PROXY | **原生支持** |
 | 点对点 | 不支持 | 跨多节点跳转 | **直连单跳** |
@@ -232,8 +232,8 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 
 **CVM（SA2/SA3/S6）网络 IO 仅为实体机 40~45%**，专业团队结论"所有 virtio 方案都有此问题"。单核单线程到顶，转**多核多通道**：
 
-- **方案一**（否）NZMesh 本地多通道转发：业务无感，但**新增 2 次额外中转**
-- **方案二（选）SDK 直连多通道**：业务 SDK 直连多个通道无多余中转；NZMesh 更新时 SDK 自适应动态屏蔽链路；多通道用**一致性 HASH 选链路**保证玩家数据有序、迁移最少
+- **方案一**（否）自研 Mesh 本地多通道转发：业务无感，但**新增 2 次额外中转**
+- **方案二（选）SDK 直连多通道**：业务 SDK 直连多个通道无多余中转；自研 Mesh 更新时 SDK 自适应动态屏蔽链路；多通道用**一致性 HASH 选链路**保证玩家数据有序、迁移最少
 
 **效果**：**CVM 总 CPU 130% 跑满万兆网卡**。
 
@@ -247,7 +247,7 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 
 ### 最终结论
 
-- NZMesh 的本质是**用 O(N) 全连接换 O(1) 单跳收敛**，与 gossip 的取舍方向相反；这套取舍在**万级节点、有状态、点对点直连**的游戏后台场景下成立。
+- 自研 Mesh 的本质是**用 O(N) 全连接换 O(1) 单跳收敛**，与 gossip 的取舍方向相反；这套取舍在**万级节点、有状态、点对点直连**的游戏后台场景下成立。
 - 性能基石是**数字 ID**（TBUSID）：让 Jump Consistent Hash、calc_connect、水库抽样都能 O(1)/O(log n)、0 额外内存跑起来。
 - 部署上用 **DaemonSet + hostNetwork** 跳出 K8s Overlay，规避网络组件频繁异常；节点发现落在 **nzmeshpanel** 而非 mesh C 代码本身，靠 **host.txt 与 K8s API 交叉对账** 保证一致性。
 - 面试记住四条校正：**Gossip 未落地、节点发现在 panel、本机通信走 TBus 共享内存、跨 DC 只见直连优先**。

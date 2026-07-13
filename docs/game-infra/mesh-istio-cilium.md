@@ -153,7 +153,7 @@ sidecar 模式里，一次 A→B 调用要经过 **App A → Envoy A → Envoy B
 - eBPF 之所以省，是流量到内核就地处理，不必反复上送用户态代理——见 [eBPF](/game-infra/ebpf.md)。
 :::
 
-**相关专题**：[eBPF 原理与落地](/game-infra/ebpf.md) · [CNI 与 K8s 网络插件](/game-infra/cni-plugins.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md) · [NZMesh × K8s](/game-infra/nzmesh-k8s.md)
+**相关专题**：[eBPF 原理与落地](/game-infra/ebpf.md) · [CNI 与 K8s 网络插件](/game-infra/cni-plugins.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md) · [自研 Mesh × K8s](/game-infra/nzmesh-k8s.md)
 
 ## 内容来源
 

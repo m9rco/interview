@@ -202,7 +202,7 @@ HMAC-SHA1( method & urlencode(path) & urlencode(sorted参数),
 - **其他**：mission / lottery / vip / season / mail / apollo / award
 
 ::: tip 共用技术底座
-- **框架**：`common/framework/svrcontext`（AcoContext 协程）；RPC 走 `svrcontext.Register / s.Request / s.Respond`，底层是 nzmesh
+- **框架**：`common/framework/svrcontext`（AcoContext 协程）；RPC 走 `svrcontext.Register / s.Request / s.Respond`，底层是自研 Mesh
 - **服务发现**：`common/service_discovery`（北极星 polaris-go 封装）
 - **监控**：`common/observability/gsmv2`（GSM）——**数值属性**走 `Sum/Avg/Max/SetAttr`；**字符串告警**走 `Alert`；**两者严格分开**
 :::

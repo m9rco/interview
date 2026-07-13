@@ -19,7 +19,7 @@ title: 算法与数据结构 · 面试高频
 | 算法 | 思路 | 内存 | 查找复杂度 | 扩缩容影响 | 适用 |
 |---|---|---|---|---|---|
 | **Ring Hash (Ketama)** | 把节点哈希到 [0, 2³²) 环上，每个节点放 N 个虚拟节点；请求哈希后顺时针找第一个节点 | O(N × V)（V=虚拟节点数，通常 100~200） | O(log(NV)) | **平均 1/N** 迁移 | Redis Cluster、Memcached、大部分场景 |
-| **Jump Consistent Hash** | Google 论文，纯计算：`ch(key, num_buckets)`；无内存 | **0** | O(log N) | **平均 1/N** 迁移，**分布最均匀** | 实例 ID 是**数字**才好用（NZMesh 就是这么选的） |
+| **Jump Consistent Hash** | Google 论文，纯计算：`ch(key, num_buckets)`；无内存 | **0** | O(log N) | **平均 1/N** 迁移，**分布最均匀** | 实例 ID 是**数字**才好用（自研 Mesh 就是这么选的） |
 | **Maglev** | Google 出品，**查找表 (lookup table) M 个槽**（通常 M=65537 素数），每个后端偏好序列填槽 | O(M)（65537 通常够用） | **O(1)** | **~1/N** 迁移 | **Google/Envoy L4 负载均衡**、需要极致查找速度 |
 
 ### Ring Hash 关键代码
@@ -63,7 +63,7 @@ int32_t JumpConsistentHash(uint64_t key, int32_t num_buckets) {
 
 **核心思想**：从 bucket 0 开始，每次概率 `(b+1)/(j+1)` 决定"是否留在当前 bucket"；不然跳到 j。**期望迭代次数 O(log N)**、**内存 0**、**分布均匀**。
 
-**限制**：bucket 编号必须 **0 ~ N-1 连续整数**——扩容只能追加、缩容必须是从尾部——不适合"节点 IP 无序删除"场景（但 NZMesh 用 TBUSID 数字就是这个前提）。
+**限制**：bucket 编号必须 **0 ~ N-1 连续整数**——扩容只能追加、缩容必须是从尾部——不适合"节点 IP 无序删除"场景（但自研 Mesh 用 TBUSID 数字就是这个前提）。
 
 ### Maglev Hashing（Google 2016 SIGCOMM）
 

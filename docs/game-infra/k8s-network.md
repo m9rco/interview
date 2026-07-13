@@ -110,7 +110,7 @@ title: K8s 异构 & 网络插件
 - 跨集群靠 Submariner / Skupper / KubeVirt-CNI 之类构建二层
 - 好处是抽象干净；坏处是**多一层封装 + 依赖 K8s 网络组件稳定性**
 
-**主机网络直连（NZMesh 采用）**：
+**主机网络直连（自研 Mesh 采用）**：
 - `hostNetwork: true` 的 DaemonSet；跨集群走公司内网直接连宿主机 IP
 - **规避 K8s 网络组件频繁异常**（Sidecar 时代真实痛点）
 - 缺点：占用宿主机端口；调度需要 `hostPort` 冲突检测

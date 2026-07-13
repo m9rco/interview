@@ -190,7 +190,7 @@ flowchart LR
 
 ### 不同后台的默认设计
 
-- **游戏世界服**：Actor + 单 tick 循环——每玩家 = 一个 actor（或每场景 = 一个 actor），私有状态，异步消息驱动，天然串行；跨玩家操作用 send。**这就是我 6 年游戏后台的默认模型**
+- **游戏世界服**：Actor + 单 tick 循环——每玩家 = 一个 actor（或每场景 = 一个 actor），私有状态，异步消息驱动，天然串行；跨玩家操作用 send。**这就是游戏后台的默认模型**
 - **MMO 场景服**：Actor + 分区（Sharding）——每 shard 一 actor，AOI 广播用 pub/sub 表达「这条消息给附近所有人」
 - **互联网 API 服务**：主从 Reactor + Half-Sync/Half-Async——Netty/Gin/FastAPI 的默认路数；协程池处理业务；DB 是瓶颈
 - **Nginx / 反向代理**：Master-Worker + Reactor（epoll）；每 worker 一个 event loop，处理成千连接
@@ -296,7 +296,7 @@ flowchart LR
 
 - 「我做过的**游戏世界服是 Actor 模型 + 单 tick 循环**——每玩家一个 actor 独占状态，跨玩家操作走消息，避开锁；瓶颈在 CPU 而不是 IO」
 - 「**业务代理 platpxy 是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」
-- 「**NZMesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」
+- 「**自研 Mesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」
 - 「**paypxy 支付回调是 Pipeline + 幂等**——米大师 → 验签 → 幂等四道闸 → RPC 转 mallsvrd 发货，每级失败都能重放」
 
 ### 模型组合而非二选一

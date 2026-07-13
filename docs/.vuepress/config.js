@@ -16,8 +16,8 @@ const base = DEPLOY_TARGET === 'cos' ? '/' : '/interview/'
 export default defineUserConfig({
   base,
   lang: 'zh-CN',
-  title: '9 年后台经验归档',
-  description: '互联网/智能硬件后台 3 年 + 游戏局外后台 6 年 · 场景—抉择—反选—沉淀',
+  title: '后台技术面试复习中心',
+  description: '互联网/智能硬件后台 · 游戏基础架构 · 游戏业务 · 场景—抉择—反选—沉淀',
   head: [
     ['meta', { name: 'theme-color', content: '#0969da' }],
     ['meta', { name: 'viewport', content: 'width=device-width,initial-scale=1' }],
