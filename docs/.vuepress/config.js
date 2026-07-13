@@ -13,6 +13,9 @@ import { sidebar } from './configs/sidebar.js'
 // 通过 DEPLOY_TARGET 环境变量在构建时切换 base，避免资源 404。
 const DEPLOY_TARGET = process.env.DEPLOY_TARGET || 'pages'
 const base = DEPLOY_TARGET === 'cos' ? '/' : '/interview/'
+// hostname 供默认主题内置的 SEO(og 标签) 与 sitemap 生成绝对 URL；随部署目标切换。
+// 设了 hostname，主题就会自动启用 @vuepress/plugin-seo 与 @vuepress/plugin-sitemap。
+const hostname = DEPLOY_TARGET === 'cos' ? 'https://interview.0x06.cn' : 'https://m9rco.github.io'
 
 export default defineUserConfig({
   base,
@@ -28,6 +31,7 @@ export default defineUserConfig({
 
   theme: defaultTheme({
     logo: null,
+    hostname,
     repo: 'm9rco/interview',
     docsDir: 'docs',
     navbar,
