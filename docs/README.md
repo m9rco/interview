@@ -1,8 +1,8 @@
 ---
 home: true
 title: 首页
-heroText: 后台技术面试复习中心
-tagline: 互联网/智能硬件后台 · 游戏基础架构 · 游戏业务 · 场景 → 实现 → 为什么这么做 → 为什么别的不行 → 沉淀
+heroText: 笃行
+tagline: 笃行致远，不负芳华 · 局 → 方案 → 为什么 → 为什么别的不行 → 沉淀
 actions:
   - text: 个人经历 & 心法
     link: /intro/
@@ -44,4 +44,5 @@ footer: 面试复习用 · 由 VuePress 生成 · 发布于 GitHub Pages / inter
 - [互联网 / 智能硬件后台](/internet/) —— php-fpm+Nginx、MQTT/IoT、前端工程、Elixir、DNS 攻防与清洗、LVS/epoll、滑动窗口
 - [游戏基础架构](/game-infra/) —— tconnd/tbus、CNI/服务网格、有状态迁移恢复、eBPF、一致性哈希、协程、秒杀、限流熔断、Raft/Gossip、LLVM
 - [游戏业务实现](/game-biz/) —— 多模板活动框架、幂等性设计、Redis 房间推荐、游戏 vs 互联网本质差异
-- [AI / 大模型](/ai-llm/) —— 大模型核心原理、推理与微调优化、RAG 检索增强、Agent 开发
+- [AI / 大模型](/ai-llm/) —— 大模型核心原理、推理与微调优化、RAG 检索增强（含数据清理）、Agent 开发
+- [通用后台基础](/common/concurrency.md) —— 并发、Go、设计模式、GC、算法 & 常见数据结构、排序、MySQL、Redis

@@ -20,8 +20,8 @@ const hostname = DEPLOY_TARGET === 'cos' ? 'https://interview.0x06.cn' : 'https:
 export default defineUserConfig({
   base,
   lang: 'zh-CN',
-  title: '后台技术面试复习中心',
-  description: '互联网/智能硬件后台 · 游戏基础架构 · 游戏业务 · 场景—抉择—反选—沉淀',
+  title: '笃行',
+  description: '笃行致远，不负芳华 · 互联网/智能硬件后台 · 游戏基础架构 · 游戏业务 · 场景—抉择—反选—沉淀',
   head: [
     ['meta', { name: 'theme-color', content: '#0969da' }],
     ['meta', { name: 'viewport', content: 'width=device-width,initial-scale=1' }],
