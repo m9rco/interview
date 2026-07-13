@@ -10,7 +10,7 @@ title: 自研 Mesh 服务网格 × K8s 部署
 
 ::: warning ⚠️ 校正清单（面试必带）
 1. **Gossip 是设计概念，未落地**：代码是"全连接网格 + 单跳全量广播"。无 W、无感染轮次、无随机邻居、收方不转发。
-2. **节点发现**：自研 Mesh 的 C 代码只读 `host.txt`；K8s API / 北极星是 nzmeshpanel(Go) 的外部链路，负责把 IP 写进 host.txt。
+2. **节点发现**：自研 Mesh 的 C 代码只读 `host.txt`；K8s API / 北极星是 xmeshpanel(Go) 的外部链路，负责把 IP 写进 host.txt。
 3. **本机通信**：msc 接业务是 **TBus 共享内存 channel**，**不是 UDS**。
 4. **跨 DC "选 2 个中转"**：代码只见"直连优先 (host_cache)"，独立实现未见，**存疑**。
 :::
@@ -54,8 +54,8 @@ flowchart LR
 
 **代码里没有任何 gossip/infect 标识符**（grep 命中 0）：
 - 组包 `make_mesh_heartbeat_package`：只装本机 `local_tbus` 实例，**不装从别人学到的实例** → 决定不可能是 gossip
-- 广播 `nzmesh_heartbeat`：遍历 `hash_cache`（所有连接）逐个发；内部计数就叫 `broadcasts++`
-- 收包 `_nzmesh_heartbeat`：对每条实例只 `svr_heartbeat` 更新本地路由表，循环结束就 return，**无任何 re-broadcast**
+- 广播 `xmesh_heartbeat`：遍历 `hash_cache`（所有连接）逐个发；内部计数就叫 `broadcasts++`
+- 收包 `_xmesh_heartbeat`：对每条实例只 `svr_heartbeat` 更新本地路由表，循环结束就 return，**无任何 re-broadcast**
 
 > **自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数**；gossip 是用 O(W) 连接换 O(log N) 跳数——**取舍方向恰好相反**。
 
@@ -71,18 +71,18 @@ flowchart LR
 
 **三大加速手段**：
 - **事件驱动立即广播**：状态变更（disable/normal/迁移）直接置 `isHeartBeat=TRUE`，下轮主循环立即广播不等 5s
-- **合包 StampCache**（`nzmesh_main.c:476`）：发送不直接 write，取缓冲块挂到连接待发链表，主循环批量刷出——**多个逻辑包合并成少量 syscall**
+- **合包 StampCache**（`xmesh_main.c:476`）：发送不直接 write，取缓冲块挂到连接待发链表，主循环批量刷出——**多个逻辑包合并成少量 syscall**
 - **单线程主循环**：连接检查/定时器/收发/心跳全在一个无锁线程跑完
 
 ### 路由能力（6 类 + 备份 + 就近 + 跨DC）
 
 | 路由类型 | 实现 | 场景 |
 | --- | --- | --- |
-| RANDOM | `_nzmesh_random` | **先就近再 rand**，失败走备份重试 |
-| MOD / MOD_BACKUP | `_nzmesh_mod` | 取模分片（合并 backup） |
-| MOD_MS | `_nzmesh_mod_ms` | 取模 + **主备双发** |
-| MASTER_SLAVE | `_nzmesh_master_slave` | 中心化服务 |
-| CO_HASH | `_nzmesh_co_hash` | 一致性哈希（玩家/房间粘性） |
+| RANDOM | `_xmesh_random` | **先就近再 rand**，失败走备份重试 |
+| MOD / MOD_BACKUP | `_xmesh_mod` | 取模分片（合并 backup） |
+| MOD_MS | `_xmesh_mod_ms` | 取模 + **主备双发** |
+| MASTER_SLAVE | `_xmesh_master_slave` | 中心化服务 |
+| CO_HASH | `_xmesh_co_hash` | 一致性哈希（玩家/房间粘性） |
 
 ### 就近路由：解决 CVM 跨机性能
 
@@ -107,7 +107,7 @@ spec.template.spec:
   volumes: [hostPath /data/home/user00,
             hostPath /data/corefile,
             emptyDir(Memory) /dev/shm]
-  containers[nzmesh]:
+  containers[xmesh]:
     ports: 8000/TCP(mesh 主服务), 9912/UDP(tlog), 9906/TCP
     lifecycle.preStop: exec [killall, daemon]
     resources: requests{2Gi,1core} limits{4Gi,2core}
@@ -129,9 +129,9 @@ spec.template.spec:
 - **CLB 接入**（`schedulersvrd/k8s/ingress/`）：腾讯 BCS 的 `networkextension.bkbcs.tencent.com/v1` Ingress（**非标准 nginx**）；按运营商拆 CLB：`-dx`(电信)/`-yd`(移动)/`-wt`(联通)/`hongkong-bgp`/`-inner`；**`isDirectConnect: true` CLB 直连 Pod**
 - **DS 战斗集群**：`ds/` chart 三件套 `idcdispatcher`/`dscenter`/`dsagent`；dsagent 单实例 16Gi/4core 起、limit 可到 128Gi/64core，`nodeSelector: node_type=ds` + `podAntiAffinity` 强制**一机一 dsagent**，PortPool 申请固定 UDP 端口给玩家直连
 
-### nzmeshpanel：运维 + 节点发现的真正落点
+### xmeshpanel：运维 + 节点发现的真正落点
 
-入口 `https://nzsvr.woa.com/nzmesh`，Go 进程 + Vue 前端。**它才是"K8s API 拉节点 / 北极星 / host.txt 对账"的实现处**。
+入口 `https://xsvr.internal/xmesh`，Go 进程 + Vue 前端。**它才是"K8s API 拉节点 / 北极星 / host.txt 对账"的实现处**。
 
 **节点发现两条来源 + 交叉对账**：
 - **host.txt**：扫 `host.*.txt`，构建 IP→文件映射；**同 IP 出现在多个 host.txt 会 GSM 告警**
@@ -161,7 +161,7 @@ TIMEOUT
 - **旧（声明式 Helm）**：`tools/docker/old/helm/`，按 `system / sgame / ds` 三 chart，每服务一份手写 `templates/*.yaml` + 一堆按"环境-地域-集群"命名的 values。**目录名 `old/` 本身就是"已归档"信号**
 - **新（程序化生成器 kdeploy）**：`go_proj/src/tools/k8s/kdeploy/`；读精简的 `service.*.yaml`/`system.*.yaml` + 3 个基础模板，内存里组装 K8s 资源并下发
 
-> **为什么从 Helm 转 kdeploy**：手写模板"每个 yaml 复制粘贴改名"太脆——旧 Helm `nzmesh.yaml:99` 的 `limits` 把 `{{` 误写成 `{ {` 渲染不出，`dsagent.yaml`/`lobbysvrd.yaml` 同款笔误还误引用了 `accountsvrd.memory_limit`。程序化生成把差异收敛到几行配置。
+> **为什么从 Helm 转 kdeploy**：手写模板"每个 yaml 复制粘贴改名"太脆——旧 Helm `xmesh.yaml:99` 的 `limits` 把 `{{` 误写成 `{ {` 渲染不出，`dsagent.yaml`/`lobbysvrd.yaml` 同款笔误还误引用了 `accountsvrd.memory_limit`。程序化生成把差异收敛到几行配置。
 
 ## 为什么这么做
 
@@ -181,8 +181,8 @@ TIMEOUT
 - **自研 Mesh 方案**：**基于 IP 末位 bit 异或的"公认随机值"**——两个数相加奇偶各 50%，异或值双方算出必然一致且 0/1 均匀
 
 ```c
-// nzmesh_main.c:149
-int calc_connect(SNZMeshNode *a, SNZMeshNode *b) {
+// xmesh_main.c:149
+int calc_connect(SXMeshNode *a, SXMeshNode *b) {
     if (a->outside_ip == b->outside_ip) return 0;
     unsigned int bit = (a->outside_ip ^ b->outside_ip) & 0x01000000;
     return !bit == (a->outside_ip > b->outside_ip) ? 1 : -1;
@@ -203,7 +203,7 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 
 ### Jump Consistent Hash（取代 Ketama）
 
-`_jump_consistent_hash`（`nzmesh_net.c:529`）：Google Jump Hash，64 位 LCG，**O(log n)、0 内存**，分布更均匀。实测"100 桶≈10M/s，1000 桶≈7.2M/s"。
+`_jump_consistent_hash`（`xmesh_net.c:529`）：Google Jump Hash，64 位 LCG，**O(log n)、0 内存**，分布更均匀。实测"100 桶≈10M/s，1000 桶≈7.2M/s"。
 
 > **成立前提**：实例 ID 用**数字**标识（沿用 TBUSID）。字符串 ID 得建环 + 字符串 hash，性能差——这是自研 Mesh 整体的性能基石。
 
@@ -242,16 +242,16 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 ### 工程细节里的经验教训
 
 - **msc ↔ mesh 主连接切换太频繁**：`msc_net.cpp:198`："**9 秒才更新一次防止切换太频繁被 mesh 误判不稳定**"——细节到"9 秒"这种拍出来的量。
-- **实例迁移防抖反复**：`nzmesh_main.c:794` 演进痕迹："超时实例是否组包"——*@jessonchen 2023.11.23* 去掉、*2023.12.07* 因网页显示异常又恢复，**典型反复**。
-- **CPU 热点抓取到锅**：`nzmesh_net.c:369` 演进注释：TBus pair 统计因 `cmpTBusPair`/`hash_find` 占 **13%/10% CPU** 被注释掉，"优化后 CPU 54%→33%"。
+- **实例迁移防抖反复**：`xmesh_main.c:794` 演进痕迹："超时实例是否组包"——*@jessonchen 2023.11.23* 去掉、*2023.12.07* 因网页显示异常又恢复，**典型反复**。
+- **CPU 热点抓取到锅**：`xmesh_net.c:369` 演进注释：TBus pair 统计因 `cmpTBusPair`/`hash_find` 占 **13%/10% CPU** 被注释掉，"优化后 CPU 54%→33%"。
 
 ### 最终结论
 
 - 自研 Mesh 的本质是**用 O(N) 全连接换 O(1) 单跳收敛**，与 gossip 的取舍方向相反；这套取舍在**万级节点、有状态、点对点直连**的游戏后台场景下成立。
 - 性能基石是**数字 ID**（TBUSID）：让 Jump Consistent Hash、calc_connect、水库抽样都能 O(1)/O(log n)、0 额外内存跑起来。
-- 部署上用 **DaemonSet + hostNetwork** 跳出 K8s Overlay，规避网络组件频繁异常；节点发现落在 **nzmeshpanel** 而非 mesh C 代码本身，靠 **host.txt 与 K8s API 交叉对账** 保证一致性。
+- 部署上用 **DaemonSet + hostNetwork** 跳出 K8s Overlay，规避网络组件频繁异常；节点发现落在 **xmeshpanel** 而非 mesh C 代码本身，靠 **host.txt 与 K8s API 交叉对账** 保证一致性。
 - 面试记住四条校正：**Gossip 未落地、节点发现在 panel、本机通信走 TBus 共享内存、跨 DC 只见直连优先**。
 
 ## 内容来源
 
-迁移自 guide/theme-nzmesh-k8s（原 02-NZMesh服务网格与K8s部署.md，抽取 2026-07-02）
+迁移自 guide/theme-xmesh-k8s（原 02-XMesh服务网格与K8s部署.md，抽取 2026-07-02）

@@ -7,7 +7,7 @@
 #### Scenario: 首次打开时展示 7 个节点
 
 - **WHEN** 用户双击 `guide/index.html`
-- **THEN** 页面在无网络环境下 500ms 内渲染出中央 SVG 拓扑，包含 7 个专题节点（intro、business-proxy、nzmesh-k8s、rate-limit、redis、k8s-network、agent-dev），每个节点显示图标 + 中文标题
+- **THEN** 页面在无网络环境下 500ms 内渲染出中央 SVG 拓扑，包含 7 个专题节点（intro、business-proxy、xmesh-k8s、rate-limit、redis、k8s-network、agent-dev），每个节点显示图标 + 中文标题
 
 #### Scenario: 点击节点切换到对应主题
 
@@ -50,7 +50,7 @@
 #### Scenario: 每个专题都有独立文件
 
 - **WHEN** 检查 `guide/` 目录
-- **THEN** 存在 `theme-intro.html`、`theme-business-proxy.html`、`theme-nzmesh-k8s.html`、`theme-rate-limit.html`、`theme-redis.html`、`theme-k8s-network.html`、`theme-agent-dev.html` 共 7 份文件
+- **THEN** 存在 `theme-intro.html`、`theme-business-proxy.html`、`theme-xmesh-k8s.html`、`theme-rate-limit.html`、`theme-redis.html`、`theme-k8s-network.html`、`theme-agent-dev.html` 共 7 份文件
 
 #### Scenario: 分册可独立分发
 

@@ -7,7 +7,7 @@
 #### Scenario: 原 13 个专题全部保留
 
 - **WHEN** 检查新站点内容
-- **THEN** 以下 13 个专题均有对应 Markdown 承接：`intro`、`business-proxy`、`nzmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`
+- **THEN** 以下 13 个专题均有对应 Markdown 承接：`intro`、`business-proxy`、`xmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`
 
 #### Scenario: 目录随新域扩展
 

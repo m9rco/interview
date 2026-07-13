@@ -2,12 +2,12 @@
 
 ### Requirement: 首批七个专题目录
 
-复习中心 MUST 涵盖以下 7 个专题（intro、business-proxy、nzmesh-k8s、rate-limit、redis、k8s-network、agent-dev），且每个专题 MUST 满足其"关键知识点必含项"清单，作为内容验收的最低门槛。
+复习中心 MUST 涵盖以下 7 个专题（intro、business-proxy、xmesh-k8s、rate-limit、redis、k8s-network、agent-dev），且每个专题 MUST 满足其"关键知识点必含项"清单，作为内容验收的最低门槛。
 
 #### Scenario: 全部 7 个专题都存在
 
 - **WHEN** 检查 `THEMES` 数组
-- **THEN** 数组恰好包含以下 7 个 `id`：`intro`、`business-proxy`、`nzmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`
+- **THEN** 数组恰好包含以下 7 个 `id`：`intro`、`business-proxy`、`xmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`
 
 ### Requirement: intro 专题内容完整
 
@@ -27,14 +27,14 @@
 - **WHEN** 打开 business-proxy 内容
 - **THEN** 内容至少包含：三模块关系图（platpxy / paypxy / mallsvrd）、platpxy 三种出向通道（HTTP 命名连接池 / 原生 TCP 私有协议 / cgo C++ SDK）、paypxy 完整支付链路（下单-支付-回调-对账）与幂等四道闸、米大师签名规则与 URL 编码坑、连接池 12000 上限与复用率埋点、监控维度爆炸的坑与固定枚举维度做法、mallsvrd 双商品体系（Shop/Mall）与周期刷新时间对齐、乐观锁 CAS、逆战点直购超时的 PLAN A/B/C 演进
 
-### Requirement: nzmesh-k8s 专题内容完整
+### Requirement: xmesh-k8s 专题内容完整
 
-`nzmesh-k8s` 专题 MUST 覆盖自研服务网格演进 + K8s 部署要点，且 MUST 明确校正"Gossip"概念与代码落地的差异。
+`xmesh-k8s` 专题 MUST 覆盖自研服务网格演进 + K8s 部署要点，且 MUST 明确校正"Gossip"概念与代码落地的差异。
 
-#### Scenario: nzmesh-k8s 必含项
+#### Scenario: xmesh-k8s 必含项
 
-- **WHEN** 打开 nzmesh-k8s 内容
-- **THEN** 内容至少包含：TGW+PROXY+TBus 时代死法、Consul 版硬伤（300 实例数据重复、5000 节点上限）、"以机器为单位"部署（DaemonSet + hostNetwork）、Gossip 校正（概念 vs 全连接单跳广播）、`calc_connect` 单向连接算法（IP 末位 bit 异或 + 5000 节点连接差 0.37%）、Reservoir Sampling 32 节点、Jump Consistent Hash 取代 Ketama、就近路由与备份路由、CVM 多通道（virtio 40-45% 瓶颈 + SDK 直连 + 一致性 HASH 保序）、K8s 三种部署模型对比（DaemonSet/Service/Sidecar 弃用原因）、hostIP 注入而非 UDS、跨集群主机网络直连、nzmeshpanel 对账 host.txt vs K8s API
+- **WHEN** 打开 xmesh-k8s 内容
+- **THEN** 内容至少包含：TGW+PROXY+TBus 时代死法、Consul 版硬伤（300 实例数据重复、5000 节点上限）、"以机器为单位"部署（DaemonSet + hostNetwork）、Gossip 校正（概念 vs 全连接单跳广播）、`calc_connect` 单向连接算法（IP 末位 bit 异或 + 5000 节点连接差 0.37%）、Reservoir Sampling 32 节点、Jump Consistent Hash 取代 Ketama、就近路由与备份路由、CVM 多通道（virtio 40-45% 瓶颈 + SDK 直连 + 一致性 HASH 保序）、K8s 三种部署模型对比（DaemonSet/Service/Sidecar 弃用原因）、hostIP 注入而非 UDS、跨集群主机网络直连、xmeshpanel 对账 host.txt vs K8s API
 
 ### Requirement: rate-limit 专题内容完整
 

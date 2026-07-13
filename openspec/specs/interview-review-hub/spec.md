@@ -56,7 +56,7 @@
 #### Scenario: 每个专题都有独立文件
 
 - **WHEN** 检查 `guide/` 目录
-- **THEN** 对 `THEMES` 数组中的每一个 `id`，都存在对应的 `theme-<id>.html` 文件（当前含 intro、business-proxy、nzmesh-k8s、rate-limit、redis、k8s-network、agent-dev、concurrency、tcp-net、gc-stw、algo-ds、design-model、release-strategy 共 13 份）
+- **THEN** 对 `THEMES` 数组中的每一个 `id`，都存在对应的 `theme-<id>.html` 文件（当前含 intro、business-proxy、xmesh-k8s、rate-limit、redis、k8s-network、agent-dev、concurrency、tcp-net、gc-stw、algo-ds、design-model、release-strategy 共 13 份）
 
 #### Scenario: 分册可独立分发
 

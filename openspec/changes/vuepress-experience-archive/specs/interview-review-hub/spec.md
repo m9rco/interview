@@ -12,7 +12,7 @@
 #### Scenario: 迁移不丢内容
 
 - **WHEN** 对照旧 `guide/` 的 13 个专题与新站点内容
-- **THEN** 旧专题（intro/business-proxy/nzmesh-k8s/rate-limit/redis/k8s-network/agent-dev/concurrency/tcp-net/gc-stw/algo-ds/design-model/release-strategy）的知识点在新站点均有对应 Markdown 承接，无内容缺失
+- **THEN** 旧专题（intro/business-proxy/xmesh-k8s/rate-limit/redis/k8s-network/agent-dev/concurrency/tcp-net/gc-stw/algo-ds/design-model/release-strategy）的知识点在新站点均有对应 Markdown 承接，无内容缺失
 
 ## REMOVED Requirements
 

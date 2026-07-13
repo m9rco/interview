@@ -18,7 +18,7 @@
 
 - [x] 3.1 从 `~/Desktop/加油.md` 抽取 `intro` 专题内容（两段经历、设计信条、高性能/高可用/分布式速记、单/多线程本质、istio 慢的原因），按四段式（是什么/为什么这么选/踩过什么坑/怎么填的）填入 `THEMES[0]`。
 - [x] 3.2 从 `~/Desktop/01-业务代理模块技术演进.md` 抽取 `business-proxy` 专题内容（三模块关系图 + platpxy 三通道 + paypxy 支付链路 + 幂等四道闸 + 米大师签名 + 12000 连接池 + 监控维度爆炸 + mallsvrd 双商品体系 + 周期时间对齐 + PLAN A/B/C），填入 `THEMES[1]`。
-- [x] 3.3 从 `~/Desktop/02-NZMesh服务网格与K8s部署.md` 抽取 `nzmesh-k8s` 专题内容（含 Gossip 校正、calc_connect、Reservoir Sampling、Jump Hash、就近路由、CVM 多通道、DaemonSet+hostNetwork、hostIP 注入、跨集群、nzmeshpanel 对账），填入 `THEMES[2]`。
+- [x] 3.3 从 `~/Desktop/02-XMesh服务网格与K8s部署.md` 抽取 `xmesh-k8s` 专题内容（含 Gossip 校正、calc_connect、Reservoir Sampling、Jump Hash、就近路由、CVM 多通道、DaemonSet+hostNetwork、hostIP 注入、跨集群、xmeshpanel 对账），填入 `THEMES[2]`。
 - [x] 3.4 编写 `rate-limit` 专题（互联网限流：Nginx limit_req / 令牌桶 / 漏桶 / Sentinel / Guava / Redis+Lua / 分布式令牌桶 / 网关层 vs 服务层；游戏限流：Tick 内 CD / 玩家账号服务器多层 / 按帧摊派 / 写队列削峰 / 排队机 + 平滑扩容 / 跨服匹配；本质差异；降级熔断兜底），填入 `THEMES[3]`。
 - [x] 3.5 编写 `redis` 专题（版本演进 3.x→8.x 时间线含 STREAM/多线程 IO/FUNCTION 等每版本亮点 + 分布式锁 SETNX/Redlock/Redisson 看门狗 + Cluster gossip/Slot/Hash Tag + 主从异步复制风险 + 缓存三板斧 + 双写一致性），填入 `THEMES[4]`。
 - [x] 3.6 编写 `k8s-network` 专题（异构混部 + node label/taint/toleration/affinity + 多 runtime + CNI 三大流派原理对比 Flannel/Calico/Cilium + kube-proxy 三模式 + Ingress/Gateway API + BCS 直连 CLB + 跨集群通信选型 + eBPF 干掉 sidecar 反复横跳 + XDS 全量下发问题），填入 `THEMES[5]`。

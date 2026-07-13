@@ -10,7 +10,7 @@
 ## 2. 迁移现有 13 专题（内容无损）
 
 - [x] 2.1 从 `guide/_themes.js` / `theme-*.html` 抽取 13 专题原文，逐一映射到目标域目录
-- [x] 2.2 迁移 `intro`、`business-proxy`、`nzmesh-k8s` 到对应域，四段式内容并入五段式，保留桌面 md 来源标注
+- [x] 2.2 迁移 `intro`、`business-proxy`、`xmesh-k8s` 到对应域，四段式内容并入五段式，保留桌面 md 来源标注
 - [x] 2.3 迁移 `rate-limit`、`redis`、`k8s-network`、`agent-dev` 到对应域，套五段式
 - [x] 2.4 迁移 `concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`，套五段式
 - [x] 2.5 逐条核对迁移无内容丢失（对照 `interview-topic-catalog` 各专题必含项），每页页脚标注"迁移自 guide/theme-<slug>"

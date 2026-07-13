@@ -38,7 +38,7 @@ export const sidebar = {
         '/game-infra/mesh-istio-cilium.md',
         '/game-infra/mesh-central-vs-decentral.md',
         '/game-infra/ebpf.md',
-        '/game-infra/nzmesh-k8s.md',
+        '/game-infra/xmesh-k8s.md',
         '/game-infra/k8s-network.md',
       ],
     },

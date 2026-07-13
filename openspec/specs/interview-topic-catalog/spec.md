@@ -2,7 +2,7 @@
 
 ## Purpose
 
-面试复习中心 `THEMES` 数组的**内容目录规范**：定义每一个专题的必含知识点清单，作为内容验收的最低门槛。规范以"是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的"四段式为核心组织结构，覆盖首批 7 个专题（`intro`、`business-proxy`、`nzmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`）以及 6 个后续追加的通用后台专题（`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`）。
+面试复习中心 `THEMES` 数组的**内容目录规范**：定义每一个专题的必含知识点清单，作为内容验收的最低门槛。规范以"是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的"四段式为核心组织结构，覆盖首批 7 个专题（`intro`、`business-proxy`、`xmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`）以及 6 个后续追加的通用后台专题（`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`）。
 
 ## Requirements
 
@@ -13,7 +13,7 @@
 #### Scenario: 全部 13 个专题都存在
 
 - **WHEN** 检查 `THEMES` 数组
-- **THEN** 数组包含以下 13 个 `id`：`intro`、`business-proxy`、`nzmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`
+- **THEN** 数组包含以下 13 个 `id`：`intro`、`business-proxy`、`xmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`
 
 ### Requirement: intro 专题内容完整
 
@@ -33,14 +33,14 @@
 - **WHEN** 打开 business-proxy 内容
 - **THEN** 内容至少包含：三模块关系图（platpxy / paypxy / mallsvrd）、platpxy 三种出向通道（HTTP 命名连接池 / 原生 TCP 私有协议 / cgo C++ SDK）、paypxy 完整支付链路（下单-支付-回调-对账）与幂等四道闸、米大师签名规则与 URL 编码坑、连接池 12000 上限与复用率埋点、监控维度爆炸的坑与固定枚举维度做法、mallsvrd 双商品体系（Shop/Mall）与周期刷新时间对齐、乐观锁 CAS、逆战点直购超时的 PLAN A/B/C 演进
 
-### Requirement: nzmesh-k8s 专题内容完整
+### Requirement: xmesh-k8s 专题内容完整
 
-`nzmesh-k8s` 专题 MUST 覆盖自研服务网格演进 + K8s 部署要点，且 MUST 明确校正"Gossip"概念与代码落地的差异。
+`xmesh-k8s` 专题 MUST 覆盖自研服务网格演进 + K8s 部署要点，且 MUST 明确校正"Gossip"概念与代码落地的差异。
 
-#### Scenario: nzmesh-k8s 必含项
+#### Scenario: xmesh-k8s 必含项
 
-- **WHEN** 打开 nzmesh-k8s 内容
-- **THEN** 内容至少包含：TGW+PROXY+TBus 时代死法、Consul 版硬伤（300 实例数据重复、5000 节点上限）、"以机器为单位"部署（DaemonSet + hostNetwork）、Gossip 校正（概念 vs 全连接单跳广播）、`calc_connect` 单向连接算法（IP 末位 bit 异或 + 5000 节点连接差 0.37%）、Reservoir Sampling 32 节点、Jump Consistent Hash 取代 Ketama、就近路由与备份路由、CVM 多通道（virtio 40-45% 瓶颈 + SDK 直连 + 一致性 HASH 保序）、K8s 三种部署模型对比（DaemonSet/Service/Sidecar 弃用原因）、hostIP 注入而非 UDS、跨集群主机网络直连、nzmeshpanel 对账 host.txt vs K8s API
+- **WHEN** 打开 xmesh-k8s 内容
+- **THEN** 内容至少包含：TGW+PROXY+TBus 时代死法、Consul 版硬伤（300 实例数据重复、5000 节点上限）、"以机器为单位"部署（DaemonSet + hostNetwork）、Gossip 校正（概念 vs 全连接单跳广播）、`calc_connect` 单向连接算法（IP 末位 bit 异或 + 5000 节点连接差 0.37%）、Reservoir Sampling 32 节点、Jump Consistent Hash 取代 Ketama、就近路由与备份路由、CVM 多通道（virtio 40-45% 瓶颈 + SDK 直连 + 一致性 HASH 保序）、K8s 三种部署模型对比（DaemonSet/Service/Sidecar 弃用原因）、hostIP 注入而非 UDS、跨集群主机网络直连、xmeshpanel 对账 host.txt vs K8s API
 
 ### Requirement: rate-limit 专题内容完整
 
@@ -121,7 +121,7 @@
 #### Scenario: design-model 必含项
 
 - **WHEN** 打开 design-model 内容
-- **THEN** 内容至少包含：同步/异步 vs 阻塞/非阻塞四象限（含 Linux epoll 是同步非阻塞而非异步 IO 的澄清、io_uring 才是真异步）、Reactor 三种变体（单线程/单 Reactor 多线程/主从 Reactor）与 Proactor（IOCP/io_uring）、Actor vs CSP 差别（通道所有权、寻址方式、发送语义、匹配语义，附 ASCII 邮箱模型对比）、Event Loop（Node 6 阶段 + 微任务/宏任务）、SEDA / Pipeline / Half-Sync-Half-Async / Master-Worker / Leader-Follower / Pub-Sub、经典组合（Nginx = Master-Worker + Reactor；Netty = 主从 Reactor + Pipeline；Erlang = Actor + Supervisor Tree；Kafka = Reactor + Master-Worker + Pub/Sub）、常见事故（Reactor 慢回调堵塞、Actor 邮箱堆积、CSP channel 泄漏与死锁、Event Loop 微任务饿死宏任务、Master-Worker 惊群、Pub/Sub 顺序与丢失、SEDA 队列爆掉）、面试话术把设计模型绑到实际系统（游戏 Actor / platpxy Reactor / NZMesh Half-Sync-Half-Async / paypxy Pipeline）
+- **THEN** 内容至少包含：同步/异步 vs 阻塞/非阻塞四象限（含 Linux epoll 是同步非阻塞而非异步 IO 的澄清、io_uring 才是真异步）、Reactor 三种变体（单线程/单 Reactor 多线程/主从 Reactor）与 Proactor（IOCP/io_uring）、Actor vs CSP 差别（通道所有权、寻址方式、发送语义、匹配语义，附 ASCII 邮箱模型对比）、Event Loop（Node 6 阶段 + 微任务/宏任务）、SEDA / Pipeline / Half-Sync-Half-Async / Master-Worker / Leader-Follower / Pub-Sub、经典组合（Nginx = Master-Worker + Reactor；Netty = 主从 Reactor + Pipeline；Erlang = Actor + Supervisor Tree；Kafka = Reactor + Master-Worker + Pub/Sub）、常见事故（Reactor 慢回调堵塞、Actor 邮箱堆积、CSP channel 泄漏与死锁、Event Loop 微任务饿死宏任务、Master-Worker 惊群、Pub/Sub 顺序与丢失、SEDA 队列爆掉）、面试话术把设计模型绑到实际系统（游戏 Actor / platpxy Reactor / XMesh Half-Sync-Half-Async / paypxy Pipeline）
 
 ### Requirement: release-strategy 专题内容完整
 
@@ -148,4 +148,4 @@
 #### Scenario: 分册页脚有来源
 
 - **WHEN** 用户滚动到任一独立分册页面底部
-- **THEN** 存在一个"内容来源 / Sources"区块，包含至少一条可读的来源说明；对于抽取自桌面 md 的三个专题（intro/business-proxy/nzmesh-k8s），来源说明含 md 路径 + 抽取日期；对于综合整理的通用专题（rate-limit / redis / k8s-network / agent-dev / concurrency / tcp-net / gc-stw / algo-ds / design-model / release-strategy），来源说明标注"综合整理"及主要参考出处
+- **THEN** 存在一个"内容来源 / Sources"区块，包含至少一条可读的来源说明；对于抽取自桌面 md 的三个专题（intro/business-proxy/xmesh-k8s），来源说明含 md 路径 + 抽取日期；对于综合整理的通用专题（rate-limit / redis / k8s-network / agent-dev / concurrency / tcp-net / gc-stw / algo-ds / design-model / release-strategy），来源说明标注"综合整理"及主要参考出处

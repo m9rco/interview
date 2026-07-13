@@ -139,7 +139,7 @@ int ring_pop(ShmRing *r, void *out, uint32_t *len) {
 - 取舍：换来低延迟，代价是跨机需兜底、故障隔离弱、编程复杂。与 gRPC/Mesh 相比，TBus 牺牲通用治理换极致性能。
 :::
 
-**相关专题**：[tconnd 接入层](/game-infra/tconnd.md) · [自研 Mesh 服务网格 × K8s](/game-infra/nzmesh-k8s.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md)
+**相关专题**：[tconnd 接入层](/game-infra/tconnd.md) · [自研 Mesh 服务网格 × K8s](/game-infra/xmesh-k8s.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md)
 
 ## 内容来源
 

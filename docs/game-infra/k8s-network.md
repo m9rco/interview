@@ -53,7 +53,7 @@ title: K8s 异构 & 网络插件
 
 - `hostNetwork: true` DaemonSet，宿主机 `0.0.0.0:8000`
 - 业务 Pod 通过 Downward API 注入 `HOST_IP`，参数 `--mesh=$HOST_IP:8000`
-- 跨集群：南京 / 上海各一份 kubeconfig，nzmeshpanel 读多集群 `Nodes().List()` 组网
+- 跨集群：南京 / 上海各一份 kubeconfig，xmeshpanel 读多集群 `Nodes().List()` 组网
 - 接入层：BCS 直连 CLB（`isDirectConnect: true`），按运营商 `-dx/-yd/-wt` 拆 CLB
 
 ## 为什么这么做

@@ -79,7 +79,7 @@ sequenceDiagram
 配合“选固定数量 peer 广播/探测”(见蓄水池抽样)，把每节点连接数从 O(N) 压到常数
 ```
 
-> 即：**用寻址规则决定连接方向 + 每节点只维护常数个 peer**，把 O(N²) 压到接近 O(N) 甚至线性可控。相关做法见 [自研 Mesh × K8s](/game-infra/nzmesh-k8s.md) 与 [蓄水池抽样选节点](/game-infra/reservoir-sampling.md)。
+> 即：**用寻址规则决定连接方向 + 每节点只维护常数个 peer**，把 O(N²) 压到接近 O(N) 甚至线性可控。相关做法见 [自研 Mesh × K8s](/game-infra/xmesh-k8s.md) 与 [蓄水池抽样选节点](/game-infra/reservoir-sampling.md)。
 
 ## 为什么这么做
 
@@ -118,7 +118,7 @@ sequenceDiagram
 - **大规模游戏集群选去中心化 + 单向连接算法降连接数**，把 O(N²) 连接压到线性可控，兼顾无单点与可扩展。
 :::
 
-**相关专题**：[Raft 与 Gossip 协议](/game-infra/raft-gossip.md) · [Istio 与 Cilium 服务网格](/game-infra/mesh-istio-cilium.md) · [自研 Mesh × K8s 部署](/game-infra/nzmesh-k8s.md) · [蓄水池抽样](/game-infra/reservoir-sampling.md)
+**相关专题**：[Raft 与 Gossip 协议](/game-infra/raft-gossip.md) · [Istio 与 Cilium 服务网格](/game-infra/mesh-istio-cilium.md) · [自研 Mesh × K8s 部署](/game-infra/xmesh-k8s.md) · [蓄水池抽样](/game-infra/reservoir-sampling.md)
 
 ## 内容来源
 
