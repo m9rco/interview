@@ -1,0 +1,95 @@
+name: Deploy Archive Site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 优先保障 GitHub Pages；COS 同步作为后续扩充选项（失败不阻断 Pages）。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ---- 主：构建并发布 GitHub Pages ----
+  build-and-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (Pages, base=/interview/)
+        run: npm run docs:build:pages
+
+      - name: Verify build output
+        run: test -f docs/.vuepress/dist/index.html && test -d docs/.vuepress/dist/assets
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vuepress/dist
+
+  deploy-pages:
+    needs: build-and-pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ---- 可选：同步到腾讯云 COS（interview.0x06.cn）----
+  # 仅当仓库配置了 COS_SECRET_ID 等 Secrets 时才执行；失败不影响 Pages。
+  sync-cos:
+    needs: build-and-pages
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: ${{ vars.ENABLE_COS == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (COS, base=/)
+        run: npm run docs:build:cos
+
+      - name: Verify build output
+        run: test -f docs/.vuepress/dist/index.html && test -d docs/.vuepress/dist/assets
+
+      - name: Setup coscmd
+        run: pip install coscmd
+
+      - name: Sync to COS (assets first, HTML last)
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+        run: |
+          coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
+          coscmd upload -rs --ignore "*.html" \
+            -H "Cache-Control:public, max-age=31536000, immutable" \
+            docs/.vuepress/dist/ /
+          coscmd upload -rs --include "*.html" \
+            -H "Cache-Control:public, max-age=60, must-revalidate" \
+            docs/.vuepress/dist/ /

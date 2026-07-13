@@ -1,0 +1,29 @@
+{
+  "name": "interview-experience-archive",
+  "version": "1.0.0",
+  "description": "9 年后台经验归档 · 互联网/智能硬件后台 + 游戏局外后台",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vuepress dev docs",
+    "docs:build": "vuepress build docs",
+    "docs:build:pages": "cross-env DEPLOY_TARGET=pages vuepress build docs",
+    "docs:build:cos": "cross-env DEPLOY_TARGET=cos vuepress build docs",
+    "docs:clean": "rimraf docs/.vuepress/.cache docs/.vuepress/.temp docs/.vuepress/dist"
+  },
+  "devDependencies": {
+    "@vuepress/bundler-vite": "2.0.0-rc.30",
+    "@vuepress/plugin-markdown-chart": "2.0.0-rc.132",
+    "@vuepress/plugin-markdown-ext": "2.0.0-rc.132",
+    "@vuepress/plugin-markdown-hint": "2.0.0-rc.132",
+    "@vuepress/plugin-markdown-stylize": "2.0.0-rc.132",
+    "@vuepress/plugin-search": "2.0.0-rc.131",
+    "@vuepress/theme-default": "2.0.0-rc.132",
+    "cross-env": "7.0.3",
+    "mermaid": "^11.16.0",
+    "rimraf": "6.0.1",
+    "sass-embedded": "1.100.0",
+    "vue": "3.5.13",
+    "vuepress": "2.0.0-rc.30"
+  }
+}

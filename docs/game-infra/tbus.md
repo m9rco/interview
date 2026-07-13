@@ -1,0 +1,146 @@
+---
+title: TBus 通信总线
+---
+
+# TBus 通信总线
+
+腾讯游戏后台通信总线 · 共享内存零拷贝 IPC · 世界-集群-实例寻址 · 环形队列
+
+> ::: tip 说明
+> TBus 是腾讯游戏后台的进程间/服务间通信总线组件。以下按**公开可知的架构原理**层面描述其设计思想与取舍，不涉及内部私有数字或未公开实现细节。
+> :::
+
+## 场景问题
+
+一台游戏物理机上跑着几十上百个进程：接入进程 [tconnd](/game-infra/tconnd.md)、逻辑服、场景服、AI、匹配、DB 代理……它们要**高频互发消息**。战斗帧里，一次玩家操作可能触发场景服 → AI → 逻辑服 → 接入回包的连锁调用，且要在**一帧（几十毫秒）内**跑完。
+
+如果这些同机进程之间走 **RPC over TCP（gRPC / 自研 TCP RPC）**：
+
+- 每条消息要经过**内核协议栈**：`send()` 拷贝到内核 socket buffer → 回环 → 另一进程 `recv()` 再拷贝回用户态，两次数据拷贝 + 两次系统调用 + 内核调度。
+- loopback 虽不过网卡，但**内核态往返 + 拷贝**在每帧上万次调用下会吃掉可观的 CPU 与延迟抖动。
+- 跨机时还要真正走网络，需要统一的**寻址与路由**，不能让每个业务进程各自维护"谁在哪台机的哪个端口"。
+
+于是需要一条**统一通信总线 TBus**：同机走**共享内存零拷贝**极致低延迟，跨机走**网络通道**，并用一套**层次化地址**统一寻址，业务只管"发给某个逻辑地址"，不关心对端在本机还是远端。
+
+```mermaid
+flowchart TB
+  subgraph NodeA[物理机 A]
+    P1[逻辑服 A1] -->|write| Q1[(共享内存 ring 本机channel)]
+    Q1 -->|read| P2[场景服 A2]
+    P1 -->|跨机地址| GW_A[TBus relay]
+  end
+  subgraph NodeB[物理机 B]
+    GW_B[TBus relay] -->|write| Q2[(共享内存 ring)]
+    Q2 -->|read| P3[逻辑服 B1]
+  end
+  GW_A <-->|网络通道 TCP/UDP| GW_B
+```
+
+## 实现方案
+
+### 1. 层次化寻址（GCIM 思想：世界-集群-实例-模块）
+
+TBus 用一套**结构化地址**标识每个通信端点，而非"IP:Port"。可理解为多段编码：
+
+```text
+Address = World . Cluster . Instance . Module
+          世界    集群      实例      模块
+例：  区服1 . 战斗集群 . GameSvr-3 . 场景管理器
+```
+
+- 业务发消息只写**逻辑地址**（"发给区服1的匹配模块"），TBus 负责把它翻译成"本机某共享内存 channel"或"某远端 relay 通道"。
+- 地址与物理位置解耦：进程迁移、扩缩容后，只需更新地址表映射，发送方代码不变。
+
+### 2. 共享内存环形队列（本机零拷贝核心）
+
+同机两进程通过一段 `mmap` 的共享内存，里面是一个 **SPSC/MPSC 环形队列（ring buffer）**。发送方写、接收方读，靠**头尾指针**推进，无需内核参与数据搬运：
+
+```c
+// 共享内存单生产者单消费者环形队列（伪码，示意零拷贝 IPC）
+typedef struct {
+    volatile uint64_t head;   // 消费者读位置（放共享内存头部）
+    volatile uint64_t tail;   // 生产者写位置
+    uint64_t          cap;    // 容量（2 的幂，& 掩码取模）
+    uint8_t           buf[];  // 柔性数组，位于同一 mmap 段
+} ShmRing;
+
+// 生产者：写一条消息（跨进程，无系统调用、无内核拷贝）
+int ring_push(ShmRing *r, const void *msg, uint32_t len) {
+    uint64_t t = r->tail;
+    uint64_t h = __atomic_load_n(&r->head, __ATOMIC_ACQUIRE);
+    if (t - h + len + 4 > r->cap) return -EAGAIN;   // 满 → 背压，交上层处理
+    uint64_t off = t & (r->cap - 1);
+    memcpy(&r->buf[off], &len, 4);                   // 长度前缀
+    memcpy(&r->buf[off + 4], msg, len);              // 直接写进共享内存
+    __atomic_store_n(&r->tail, t + 4 + len, __ATOMIC_RELEASE); // 发布：release 屏障
+    return 0;
+}
+
+// 消费者：读一条消息（对端进程 mmap 同一段内存）
+int ring_pop(ShmRing *r, void *out, uint32_t *len) {
+    uint64_t h = r->head;
+    uint64_t t = __atomic_load_n(&r->tail, __ATOMIC_ACQUIRE);
+    if (h == t) return -EAGAIN;                       // 空
+    uint64_t off = h & (r->cap - 1);
+    memcpy(len, &r->buf[off], 4);
+    memcpy(out, &r->buf[off + 4], *len);
+    __atomic_store_n(&r->head, h + 4 + *len, __ATOMIC_RELEASE);
+    return 0;
+}
+```
+
+::: tip 为什么叫"零拷贝"
+数据只在**共享内存里存在一份**：生产者 `memcpy` 进 ring，消费者直接从同一物理页读（更极致的实现连这次 `memcpy` 都省，直接在 ring 里构造消息）。相比 TCP，省掉了「用户态→内核 socket buf→用户态」的**两次内核拷贝**和系统调用/调度开销。
+:::
+
+### 3. 消息可靠性与背压
+
+- **背压**：ring 满时 `ring_push` 返回 `EAGAIN`，上层选择丢弃（可容忍帧）、缓冲重试、或反压上游，而不是无限堆积 OOM。
+- **可靠性**：同机共享内存本身可靠；跨机 relay 通道上做序号 + 重传（或依赖 TCP）。业务层对关键消息加 seq/ack 幂等。
+
+## 为什么这么做
+
+**为什么同机用共享内存总线而非 RPC over TCP？**
+
+| 维度 | 共享内存 ring | TCP loopback RPC |
+|---|---|---|
+| 数据拷贝 | 1 份（共享） | 2 次内核拷贝 |
+| 系统调用 | 无（纯内存 + 原子操作） | send/recv 每次陷入内核 |
+| 延迟 | 纳秒~微秒级 | 微秒~几十微秒 + 抖动 |
+| 内核调度 | 不参与 | 参与，帧内抖动 |
+
+游戏后台每帧上万次同机调用，**延迟与抖动**直接决定帧率是否稳定，共享内存把每次调用的固定开销压到极低。
+
+**为什么要统一寻址而非各进程自己记 IP:Port？**
+
+- 进程会迁移、扩缩容、重启换端口。业务写死物理地址就得跟着改。层次化逻辑地址 + 地址表，让**位置透明**：发送方永远只写逻辑地址。
+
+## 为什么别的选择不行
+
+::: warning 其他通信方案的短板
+| 方案 | 为什么不选（在游戏同机高频场景） |
+|---|---|
+| **gRPC / RPC over TCP** | 内核往返 + 双拷贝 + HTTP2/序列化开销，同机高频下延迟/CPU 浪费；本机通信杀鸡用牛刀 |
+| **Unix Domain Socket** | 比 TCP 省协议栈，但仍是**内核缓冲 + 拷贝 + 系统调用**，不如共享内存零拷贝 |
+| **Service Mesh（sidecar）** | 每跳多一个代理进程 + 两次 socket，为治理牺牲延迟；游戏帧内通信承受不起（见 [Istio vs Cilium](/game-infra/mesh-istio-cilium.md)） |
+| **纯消息队列（Kafka/MQ）** | 面向异步吞吐与持久化，非帧内低延迟同步调用，落盘/网络往返太重 |
+:::
+
+::: danger 共享内存不是银弹
+共享内存 IPC 的代价：**跨机不适用**（需 relay 兜底）、**故障隔离弱**（一个进程写坏 ring 可能影响对端，需校验与守护）、**编程复杂**（内存屏障、生命周期、清理）。所以 TBus 是"同机共享内存 + 跨机网络通道"的**混合模型**，不是纯共享内存。
+:::
+
+## 沉淀结论
+
+::: tip 结论
+- TBus = **统一通信总线**：同机**共享内存零拷贝环形队列**极致低延迟，跨机走网络 relay，一套**层次化逻辑地址**（世界-集群-实例-模块）实现位置透明。
+- 相比 RPC over TCP，省掉两次内核拷贝 + 系统调用，把同机高频调用延迟压到微秒级——这是游戏"帧内多跳调用还要稳帧率"的刚需。
+- ring 满即**背压**，上层决定丢/缓/反压，避免 OOM。
+- 取舍：换来低延迟，代价是跨机需兜底、故障隔离弱、编程复杂。与 gRPC/Mesh 相比，TBus 牺牲通用治理换极致性能。
+:::
+
+**相关专题**：[tconnd 接入层](/game-infra/tconnd.md) · [NZMesh 服务网格 × K8s](/game-infra/nzmesh-k8s.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md)
+
+## 内容来源
+
+综合整理。参考方向：共享内存 IPC 与无锁环形队列（SPSC/MPSC ring buffer）通用原理、`mmap` 零拷贝进程间通信的行业通行做法、腾讯游戏后台 TBus 公开介绍（共享内存总线 + 层次化寻址思想）、Service Mesh / gRPC 与本机 IPC 的性能取舍讨论。TBus 内部实现细节未公开，本文仅从设计思想与取舍层面描述。
