@@ -44,20 +44,8 @@ coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS
 
 # 发布顺序：先传带 hash 的静态资源（长缓存），最后覆盖入口 HTML（短缓存），
 # 降低发布过程中"新 index 引用尚未上传的 chunk"导致的 404。
-echo "==> [4/4] 同步到 COS（先资源后 HTML）"
-
-# 4.1 先上传除 *.html 外的所有静态资源，长缓存
-coscmd upload -rs \
-  --ignore "*.html" \
-  -H '{"Cache-Control":"public, max-age=31536000, immutable"}' \
-  "$DIST/" / >/dev/null
-echo "    静态资源已上传（长缓存）"
-
-# 4.2 最后上传 HTML，短缓存，覆盖入口
-coscmd upload -rs \
-  --include "*.html" \
-  -H '{"Cache-Control":"public, max-age=60, must-revalidate"}' \
-  "$DIST/" / >/dev/null
-echo "    HTML 已覆盖（短缓存）"
+# 并发上传（coscmd 逐文件串行太慢）：由 cos-upload-parallel.sh 用 xargs -P 起多进程。
+echo "==> [4/4] 并发同步到 COS（先资源后 HTML, 并发 ${COS_CONCURRENCY:-8}）"
+bash "$ROOT/scripts/cos-upload-parallel.sh" "$DIST"
 
 echo "==> 完成：https://interview.0x06.cn/"

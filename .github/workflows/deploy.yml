@@ -79,17 +79,14 @@ jobs:
       - name: Setup coscmd
         run: pip install coscmd
 
-      - name: Sync to COS (assets first, HTML last)
+      - name: Sync to COS (parallel, assets first, HTML last)
         env:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
+          # 并发进程数（xargs -P），可用仓库变量 COS_CONCURRENCY 覆盖，默认 8。
+          COS_CONCURRENCY: ${{ vars.COS_CONCURRENCY || '8' }}
         run: |
           coscmd config -a "$COS_SECRET_ID" -s "$COS_SECRET_KEY" -b "$COS_BUCKET" -r "$COS_REGION"
-          coscmd upload -rs --ignore "*.html" \
-            -H '{"Cache-Control":"public, max-age=31536000, immutable"}' \
-            docs/.vuepress/dist/ /
-          coscmd upload -rs --include "*.html" \
-            -H '{"Cache-Control":"public, max-age=60, must-revalidate"}' \
-            docs/.vuepress/dist/ /
+          bash scripts/cos-upload-parallel.sh docs/.vuepress/dist
