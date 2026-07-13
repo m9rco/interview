@@ -165,6 +165,11 @@ flowchart TD
 **Agent = Prompt + Tools + Memory + Loop + Guardrails + Evaluation。** 缺任何一样都会在生产坏掉——Demo 跑通只是 20% 的工作，剩下 80% 是评测和护栏。
 :::
 
+::: info 本域延伸
+- Agent 的「记忆 / 长期检索」本质是一次 [RAG](/ai-llm/rag.md) 调用——向量库召回历史相似任务，同样受 chunking、rerank、"迷失在中间"等问题制约。
+- 上下文窗口的 O(n²) 注意力开销、解码采样等底层约束见 [大模型核心原理](/ai-llm/llm-fundamentals.md)；latency / 成本优化（KV Cache、投机解码、量化）见 [推理与微调优化](/ai-llm/llm-inference-optimization.md)。
+:::
+
 ## 内容来源
 
 迁移自 guide/theme-agent-dev（综合整理）

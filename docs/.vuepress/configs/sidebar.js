@@ -85,7 +85,19 @@ export const sidebar = {
         '/game-biz/redis-room-recommend.md',
         '/game-biz/game-vs-internet.md',
         '/game-biz/business-proxy.md',
-        '/game-biz/agent-dev.md',
+      ],
+    },
+  ],
+
+  '/ai-llm/': [
+    {
+      text: 'AI / 大模型',
+      children: [
+        '/ai-llm/README.md',
+        '/ai-llm/llm-fundamentals.md',
+        '/ai-llm/llm-inference-optimization.md',
+        '/ai-llm/rag.md',
+        '/ai-llm/agent-dev.md',
       ],
     },
   ],

@@ -17,6 +17,10 @@ export const navbar = [
     link: '/game-biz/',
   },
   {
+    text: 'AI / 大模型',
+    link: '/ai-llm/',
+  },
+  {
     text: '通用基础',
     link: '/common/concurrency.md',
   },
