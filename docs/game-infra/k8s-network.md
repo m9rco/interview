@@ -65,12 +65,25 @@ title: K8s 异构 & 网络插件
 3. 节点上的 Agent（kubelet/kube-proxy）能与本节点所有 Pod 通信
 4. Pod 看到的自己 IP == 别的 Pod 看到的它的 IP（**IP 一致性**）
 
-### Service / kube-proxy 的三种模式
+### Service / kube-proxy 的演进史（面试高频）
 
-- **userspace（远古）**：kube-proxy 自己转发，慢，已废弃
-- **iptables（默认）**：为每个 Service 生成 iptables 规则；**规则数 O(N)**，服务 5000+ 时 iptables 规则匹配 O(N) 变慢，容易触发内核卡顿
-- **ipvs（推荐大集群）**：内核态 hash 表，**O(1) 查找**；支持更多算法 (rr/lc/dh/sh)；同时支持 SNAT/DNAT
-- **eBPF (Cilium kube-proxy replacement)**：**完全绕过 kube-proxy**，Service 转发做进 eBPF map；集群 5000+ Service 时优势明显
+kube-proxy 的核心工作只有一件：把发往 **Service ClusterIP（虚拟 IP，无实体）** 的流量，负载均衡到后端一组真实 Pod IP（Endpoints）。它 watch API-Server 的 Service/Endpoints 变化，把规则同步到内核。四个模式一条主线：**转发从用户态搬回内核态、规则匹配从 O(N) 优化到 O(1)、最后连 kube-proxy 本身都被 eBPF 干掉。**
+
+```mermaid
+flowchart LR
+  U["userspace<br/>用户态代理<br/>已废弃"] --> I["iptables<br/>内核态 · O(N)<br/>K8s 默认"]
+  I --> V["ipvs<br/>内核态 hash · O(1)<br/>大集群推荐"]
+  V --> E["eBPF<br/>Cilium 替换<br/>去 kube-proxy"]
+```
+
+- **① userspace（远古，已废弃）**：kube-proxy 自己在**用户态**监听端口做代理转发。每个包都要 **内核态 ↔ 用户态来回拷贝一次**，上下文切换开销巨大；且 kube-proxy 进程挂了转发就断。慢到没法用，早废弃。
+- **② iptables（K8s 默认）**：kube-proxy 只当"规则搬运工"——把转发规则写进内核 **netfilter/iptables**，转发全在内核态完成，不再拷贝到用户态，性能大幅提升。**痛点是规则匹配是线性链表 O(N)**：每个 Service 生成一串 `KUBE-SERVICES → KUBE-SVC-xxx → KUBE-SEP-xxx` 规则，5000+ Service 时匹配一个包要顺着链表往下扫，且**每次 Endpoint 变化要全量 rewrite 规则**，sync 耗时飙到秒级甚至分钟级，规则刷新时还可能丢包。负载均衡靠 `statistic` 模块的概率跳转，本质是随机，**不支持真正的算法**。
+- **③ ipvs（大集群推荐）**：底层换成内核的 **IPVS（IP Virtual Server，本就是 LVS 的内核模块）**，用 **hash 表存规则，查找 O(1)**，规则再多匹配耗时也恒定；增量更新 Endpoint 无需全量 rewrite。支持丰富的负载均衡算法：**rr（轮询）/ wrr（加权轮询）/ lc（最少连接）/ dh（目标哈希）/ sh（源哈希）**。注意：ipvs 只管 LB，**NetworkPolicy / SNAT 这些仍需要少量 iptables 规则兜底**，是"ipvs + 少量 iptables"混合模式。大集群务必从 iptables 切到 ipvs。
+- **④ eBPF（Cilium kube-proxy replacement）**：更激进——**完全不装 kube-proxy**。Service → Endpoint 的转发表直接做进 **eBPF map**，在 socket / tc 挂载点做转发（`socket-LB` 甚至在建连时就把 ClusterIP 改写成 Pod IP，省掉每包 DNAT）。绕过整条 iptables/ipvs 链路，**O(1) 查 map + 内核态直连**，5000+ Service 规模优势碾压，同时天然支持 L3-L7 策略与超强可观测。代价是内核版本要求高（≥4.19，强推荐 ≥5.10）。
+
+::: tip 一句话记忆
+userspace 慢在**用户态拷贝**；iptables 快了但**规则 O(N)**；ipvs 用 **hash 做到 O(1)** 且支持真正的 LB 算法；eBPF 干脆**把 kube-proxy 整个删掉**，转发做进内核 map。
+:::
 
 ### Ingress vs Gateway API
 
@@ -119,7 +132,7 @@ title: K8s 异构 & 网络插件
 
 - **异构混部**靠 label + nodeSelector/affinity + taint + 多架构镜像四把刀落地，别赖默认调度器。
 - **CNI 选型**按规模走：小集群 Flannel VXLAN 图省事；要 NetworkPolicy/跨机房上 Calico BGP（不通回退 IPIP）；大集群、L7、极致性能上 Cilium eBPF。
-- **Service 转发**大集群务必从 iptables O(N) 切到 ipvs O(1) 或 eBPF，否则 5000+ Service 时 kube-proxy sync 分钟级。
+- **Service 转发 / kube-proxy 演进**：userspace（用户态拷贝，废弃）→ iptables（内核态但规则 O(N)，K8s 默认）→ ipvs（hash 表 O(1)+ 真 LB 算法，大集群推荐）→ eBPF（Cilium 直接替换掉 kube-proxy，转发进 eBPF map）。主线是**转发搬回内核态 + 匹配从 O(N) 到 O(1) + 最终去 kube-proxy**。大集群务必从 iptables 切 ipvs 或 eBPF，否则 5000+ Service 时 sync 分钟级还可能刷新丢包。
 - **游戏后台**的结论是跳出 Overlay：`hostNetwork` DaemonSet + 业务级 Mesh 做路由，用宿主机 IP 直连规避 K8s 网络组件频繁异常，代价是占端口、需 `hostPort` 冲突检测。
 
 ## 内容来源

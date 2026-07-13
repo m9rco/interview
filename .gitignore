@@ -13,3 +13,4 @@ docs/.vuepress/.temp/
 .env.*
 .cos.conf
 *.secret
+.session_tmps/

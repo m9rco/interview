@@ -4,125 +4,238 @@ title: tconnd 接入层
 
 # tconnd 接入层
 
-腾讯游戏接入网关 · 有状态长连接 · 私有协议 · 低延迟收发
+腾讯游戏接入网关（TSF4G-TCONND）· 有状态长连接 · 私有协议 · FRAME/TBUS · 低延迟收发
 
 > ::: tip 说明
-> tconnd 是腾讯游戏后台常见的接入层组件（tconnd / connsvr 一类）。以下按**公开可知的架构原理**层面描述其设计思想与取舍，不涉及内部代码行号或未公开的私有数字。
+> tconnd 是腾讯游戏后台框架 **TSF4G（Tencent Service Framework for Game）** 中的接入服务组件。本文结合其**公开手册中的设计原理**（FRAME 协议、五大接入模式、鉴权体系、断线重连、集群化）描述架构思想与取舍，帮助从"知道有这么个网关"到"讲清楚它每个机制为什么这么设计"。不涉及内部未公开的实现细节。
 > :::
 
 ## 场景问题
 
-一款 MMO / 竞技类游戏，成百上千万玩家同时在线，每个玩家一条 **TCP/UDP 长连接**贴着接入层不放。业务后端（逻辑服、场景服、匹配服）是无数个进程，散在不同机器上。直接让业务进程去 `accept()` 海量连接会带来一堆麻烦：
+一款 MMO / 竞技类游戏，成百上千万玩家同时在线，每个玩家一条 **TCP/UDP 长连接**贴着接入层不放。业务后端（逻辑服 GameSvr、场景服、匹配服）是无数个进程，散在不同机器上。直接让业务进程去 `accept()` 海量连接会带来一堆麻烦：
 
 - **连接与逻辑耦合**：业务进程既要处理游戏逻辑（帧驱动、战斗计算），又要处理 socket 读写、TLS 握手、心跳，CPU 被 I/O 抢占，逻辑帧率抖动。
 - **有状态**：连接不是无状态 HTTP，一条连接对应一个玩家会话（session），断线要能重连回原逻辑上下文，不能随便打到任意后端。
 - **私有协议**：游戏包是自定义二进制协议（省带宽、防抓包/外挂），不是 HTTP，通用网关（Nginx / API Gateway）识别不了。
 - **安全**：外网直连业务进程 = 把逻辑服暴露给公网攻击面，DDoS 一打就穿。
 
-于是需要一层专门的**接入网关 tconnd**：对外扛住海量长连接与收发包，对内把干净的业务消息路由给后端，让逻辑服只管逻辑。
+TSF4G 的解法就是一句话：**把"与游戏业务无关的数据收发与连接管理"从 GameSvr 里剥离出来，交给 TCONND。** 用手册原话说——TCONND 最基本的功能就是实现**"（基于 TCP/IP 的）字节流"与"（TBUS 通道中的）消息包序列"之间的转换**。
 
 ```mermaid
 flowchart LR
   subgraph Client[玩家客户端]
-    C1[Player-1]
+    C1["Player-1<br/>TGCPAPI/ProtocolHandler"]
     C2[Player-N]
   end
-  subgraph Edge[接入层 tconnd 集群]
-    T1[tconnd-A 长连接/心跳/加解密/session]
+  subgraph Edge["接入层 TCONND 集群（epoll 单/多线程）"]
+    T1["tconnd-A<br/>长连接/心跳/加解密/鉴权/session"]
     T2[tconnd-B]
   end
-  subgraph Backend[业务后端]
+  subgraph Backend["业务后端（TCONNAPI）"]
     B1[逻辑服 GameSvr]
     B2[场景服 SceneSvr]
   end
-  C1 -->|TCP 长连接 私有协议| T1
-  C2 -->|TCP 长连接 私有协议| T2
-  T1 -->|TBus 共享内存/跨机通道| B1
-  T2 -->|TBus| B2
-  B1 -. 回包 .-> T1 -. 下发 .-> C1
+  C1 -->|"TCP 长连接 · 私有协议（字节流）"| T1
+  C2 -->|TCP/UDP| T2
+  T1 -->|"TBUS 通道 · FRAME 消息（串行包）"| B1
+  T2 -->|TBUS| B2
+  B1 -. "回包（下行 FRAME）" .-> T1 -. 下发 .-> C1
 ```
+
+### TSF4G 组件全景（先认清 TCONND 的邻居）
+
+TCONND 从来不是单打独斗，理解它必须先认清一圈组件：
+
+| 组件 | 职责 | 类比 |
+| --- | --- | --- |
+| **TCONND** | 接入服务：TCP/UDP 并发字节流 ↔ TBUS 串行消息包，管连接、鉴权、加解密、排队 | 门卫兼话务台 |
+| **TBUS** | 进程/线程间通信中间件，走**共享内存**通道（channel），双工收发 | 内部专线 |
+| **GCIM** | Global Channel Information Map，全局通道信息表，存所有 channel 配置（两端 TBUS 地址、队列大小），放共享内存，一台机器一份 | 电话簿 |
+| **TDR** | 数据表示组件，用**元数据（meta）**描述数据结构，TCONND 靠它做协议分包与打解包 | 报文的"字典" |
+| **TCLTAPI / TQQAPI / TGCPAPI** | 客户端接入库（分别对应 TDR / QQ / GCP 模式），封装协议处理与连接管理 | 客户端 SDK |
+| **TCONNAPI** | GameSvr 侧接入库，封装 FRAME 协议编解码 + TBUS 收发 | 后端 SDK |
+| **ProtocolHandler** | Windows 下对 TQQAPI 的封装 DLL，独立线程收发 | 端游客户端封装 |
+| **APS / ClusterAgent** | 鉴权代理服务 / 集群化路由代理（下文详述） | 认证中心 / 调度中心 |
+
+一句话串起来：**客户端用 TGCPAPI 连 TCONND，TCONND 用 TBUS（查 GCIM 找通道）把 FRAME 消息投给 GameSvr，GameSvr 用 TCONNAPI 收发。**
 
 ## 实现方案
 
-tconnd 作为**接入网关**，核心职责可以拆成六块：
+TCONND 的核心职责可拆成六块：**① 长连接维持**（epoll 管十万级 fd）**② 收发包与分包**（把字节流切成完整业务包）**③ 心跳保活**（空闲探测 MaxIdle）**④ 鉴权 + 加解密**（QQ/CTLogin/PTLogin/第三方/APS）**⑤ 会话状态与排队**（session + FIFO 排队保护后端）**⑥ 路由到 TBus**（投给对应 GameSvr）。下面挑面试最能深挖的几块展开。
 
-1. **长连接维持**：`epoll`（Linux）单/多 reactor 管理十万级 fd，每条连接是一个 `Conn` 对象，维护读写缓冲、连接状态、最后活跃时间。
-2. **收发包与粘包处理**：TCP 是字节流，私有协议要自己切帧（见下方帧结构）。
-3. **心跳保活**：定时检查 `last_active`，超时踢连接；客户端周期发 heartbeat，弱网下用它探活。
-4. **加解密**：握手协商密钥（如 ECDH），后续包体对称加密（AES/自研流密码），防明文抓包与篡改。
-5. **会话（session）状态管理**：一条连接绑定一个 `session_id`，记录玩家 uid、路由到的后端地址、登录态；断线时 session 不立即销毁，保留一个 TTL 供重连。
-6. **路由到后端 TBus**：解出业务消息后，按玩家所在世界/逻辑服，通过 **[TBus](/game-infra/tbus.md)** 投递到对应后端进程。
+### 五大接入模式（PDU）
 
-### 私有协议帧结构与粘包处理
+TCONND 用 **PDU（Protocol Data Unit）** 抽象不同接入 + 分包方式，每种 PDU 有独立业务处理逻辑。这是理解 TCONND 演进史的主线：
 
-游戏私有协议通常是 **length-prefixed（长度前缀）** 帧，用固定头 + 变长体解决 TCP 粘包/半包：
+| 模式 | 分包方式 | 定位 | 能力 |
+| --- | --- | --- | --- |
+| **TDR** | `BY_TDR`（按 TDR 元数据算包长）| 纯透传中间件，**不鉴权** | 最裸，客户端用 TCLTAPI |
+| **QQ** | `BY_QQ`（预定义 QQ 协议）| 端游主力 | QQ 登录鉴权、加解密、断线重连、跨服跳转 |
+| **WEB** | `BY_WEB`（二进制 or HTTP）| 页游 | 穿透 HTTP 代理/防火墙、Flash 策略文件、Ptlogin 鉴权 |
+| **UDP** | 无分包（一次 recv 一个包）| 弱网/实时 | 转发时带客户端 IP+PORT，回包按此路由 |
+| **GCP** | `BY_GCP`（通用传输协议）| **手游主力** | QQ 模式全特性 + 灵活账号（u32/u64/字符串）+ 多鉴权平台 + 账号映射 + 压缩 + 新组播 |
 
-```c
-// 接入层私有协议帧（示意；字段命名/长度按公开原理，非内部真实值）
-struct PktHeader {
-    uint32_t magic;      // 魔数，快速校验/丢弃脏流量
-    uint32_t total_len;  // 整帧长度（含头），用于切帧
-    uint16_t version;    // 协议版本，兼容灰度
-    uint16_t cmd;        // 命令字，路由到后端 handler
-    uint32_t seq;        // 序号，请求-响应匹配 & 幂等
-    uint32_t flags;      // 位标记：是否加密 / 是否压缩
-    // 后面紧跟 body[total_len - sizeof(PktHeader)]
-} __attribute__((packed));
-
-// 从 TCP 读缓冲切出完整帧（粘包/半包处理核心）
-// 返回 >0: 消费的字节数; 0: 数据不足需继续收; <0: 协议错误踢连接
-int try_parse_frame(RingBuf *rb, Frame *out) {
-    if (rb->readable < sizeof(PktHeader)) return 0;   // 头都不够，半包
-    PktHeader h;
-    ringbuf_peek(rb, &h, sizeof(h));
-    if (ntohl(h.magic) != PROTO_MAGIC) return -1;     // 脏流量，断开
-    uint32_t len = ntohl(h.total_len);
-    if (len < sizeof(PktHeader) || len > MAX_PKT) return -1; // 防超大包攻击
-    if (rb->readable < len) return 0;                 // 体不够，等下一次 recv
-    ringbuf_consume(rb, out->buf, len);               // 切出一整帧
-    out->len = len;
-    return (int)len;                                  // >0：交给上层解密/路由
-}
-```
-
-::: tip 粘包三态
-一次 `recv` 可能拿到：**半个包**（体没收全）、**一个包**、**一个半 / 多个包**（粘一起）。用 `while (try_parse_frame(...) > 0)` 循环切，直到返回 0（数据不足）为止，剩余字节留在环形缓冲等下次。
+::: tip 为什么手游要新造 GCP 模式？
+QQ 模式把账号写死成 `uint32` 的 uin，绑死即通 KEY 鉴权——不适应手游（微信/手Q/海外账号大多是字符串）。**GCP = General Communication Protocol**，继承 QQ 模式的排队/加密/断线重连，再补三刀：**灵活账号类型、多鉴权平台（委托 APS 快速接入新平台，TCONND 侧零改动）、字符串账号→uint64 映射**（方便 GameSvr 用整型做索引）。这就是"抽象层收口，把易变的鉴权外包出去"的经典设计。
 :::
 
-### 断线重连与会话保持
+### FRAME 协议：TCONND ↔ GameSvr 的内部契约
+
+客户端和 TCONND 之间跑的是**业务私有协议**（TCONND 不理解），而 TCONND 和 GameSvr 之间跑的是 **FRAME 协议**。关键点：
+
+- **FRAME 头不含 body 长度**——因为 TBUS 保证消息完整性（收到的就是整包），所以 TCONND 从 TBUS 拿到消息后，解出 `TFRAMEHEAD` 头，剩下的全是业务数据。**这是"分包责任下沉给传输层"的巧思**：外网 TCP 字节流才需要自己切帧，内网 TBUS 天然按消息投递。
+- **`chCmd` 决定一切**：命令字段区分 `START / STOP / RELAY / INPROC` 等，`stCmdData` 是个 union，`chCmd` 选中哪个成员有效。
+- **两个回调索引把连接和会话绑起来**：
+
+```c
+// FRAME 头的核心字段（据公开手册整理，非内部真实布局）
+struct TFRAMEHEAD {
+    uint8_t  chCmd;      // START/STOP/RELAY/INPROC... union 选择子
+    int32_t  iConnIdx;   // TCONND 分配的"连接索引"，GameSvr 只读
+    int32_t  iID;        // GameSvr 分配的"会话标识"，TCONND 只读，初值 -1
+    uint64_t ullExtend;  // GameSvr 预留扩展位，TCONND 只回填不理解
+    // ... stCmdData (union, 依 chCmd 而定)
+};
+```
+
+  - **上行**（客户端→GameSvr）：GameSvr 用 `iID` 找到处理该消息的会话。
+  - **下行**（GameSvr→客户端）：TCONND 用 `iConnIdx` 找到对应连接。
+  - GameSvr 回包原则：**应答复制上行头再改字段；主动发则 memset 清零后填 `chCmd/iConnIdx/iID`。**
+
+### START 握手 与 长短连接（iID 校验）
+
+连接建立的本质是一次 **START 握手**：
 
 ```mermaid
 sequenceDiagram
   participant C as 客户端
-  participant T as tconnd
-  participant S as SessionMgr
-  participant B as 后端逻辑服
-  C->>T: 首次连接 + 登录
-  T->>S: 创建 session(uid, backend_addr, TTL)
-  Note over T,B: 正常收发，session 绑定连接
-  C--xT: 网络抖动，连接断开
-  T->>S: 标记 session 为 DISCONNECTED(保留 TTL)
-  Note over S: 后端逻辑与玩家内存态仍在，不销毁
-  C->>T: 重连 + 带上 session_id/token
-  T->>S: 校验 token，命中未过期 session
-  S-->>T: 复用旧 session，重新绑定新连接
-  T->>B: 续接原后端，无需重新进世界
+  participant T as TCONND
+  participant G as GameSvr
+  C->>T: 建连（+鉴权，若 QQ/GCP）
+  T->>G: START 消息（iID = -1，表示后端尚未分配会话）
+  G->>G: 为连接分配会话对象
+  G-->>T: 回 START（把 iID 设为会话标识）
+  T->>T: 按 iConnIdx 找连接，记下 iID
+  Note over T,G: 之后下行消息 iID 必须一致，否则丢弃+记错误日志
 ```
 
-关键点：**连接会断，会话不断**。session 有一个短 TTL（几十秒到几分钟），断线期间保留玩家在后端的内存态；重连时凭 `session_id + token` 复用，避免重新登录、重新加载数据、重新进场景。
+**长短连接的判定就藏在这个回复的 iID 里**（不是指 TCP 长短连接）：
+
+| | 长连接（iID ≠ -1）| 短连接（iID = -1）|
+| --- | --- | --- |
+| 源 IP+PORT | 仅 START 携带 | 每个上行包都带 |
+| 连接关闭 | 发 STOP 消息 | 不发 STOP |
+| 下行校验 | 校验 iID 一致，不一致丢弃 | 不校验 iID，校验 IP+PORT |
+
+### 断线重连：连接可断，会话不断
+
+QQ/GCP 登录握手很重（要传签名、协商密钥），网络一抖就重来代价太大。TCONND 的解法：**网络异常时不立刻发 STOP，而是保留会话一个 TTL（配置项 `ReconnValidSec`）**，等客户端凭身份信息重连。
+
+```mermaid
+sequenceDiagram
+  participant C as 客户端
+  participant T as TCONND
+  participant G as GameSvr
+  Note over C,T: 初始连接时 TCONND 已下发"身份信息"给客户端
+  C--xT: 网络抖动（收到 TCP RST）
+  T->>T: 不发 STOP，保留连接 ReconnValidSec 秒
+  C->>T: 断线重连（带身份信息 + 鉴权数据）
+  alt 身份校验命中
+    T->>G: RELAY 消息（带旧连接标识 iConnIdx/iID）
+    G-->>T: 复用/新建会话，回 iID
+    Note over T,G: 续接原后端，免重登录
+  else 命中失败（接入 TGW 连到了别的 TCONND）
+    T->>G: START 消息（RelayFlag=1，提示这是重连失败的新连接）
+  end
+```
+
+**几个魔鬼细节（面试深挖点）：**
+- **只有收到 TCP RST（网络异常）才等重连**；客户端主动 close 或 GameSvr 发 STOP，TCONND 直接释放，不等。
+- **接入 TGW 后重连可能落到别的 TCONND**，找不到旧连接 → 重连请求里额外带鉴权数据，失败就走新建连接，用 `RelayFlag=1` 告诉 GameSvr。
+- **手机锁屏坑**：锁屏时系统主动关 socket，TCONND 会误判为"客户端主动退出"立即释放。解法是配 `EnlargeReconnScopeFlag`——收到 socket 关闭时先看有没有收到 GCP 协议层的关闭包，没有就仍保留等重连。
+
+### 鉴权体系：从写死 KEY 到委托 APS
+
+TCONND 支持多种连接鉴权，`AuthType` 取值 `NONE/QQV1/QQV2/QQUNIFIED/AP/PT`：
+
+- **CTLogin**（即通 KEY 鉴权）：QQ 模式主力，端游常用。客户端经 TCLS 从即通拉签名 → 传给 TCONND → TCONND 调 VasApi 验签。
+- **PTLogin**：Web 模式主力。页游登录 QQ 拿 skey → TCONND UDP 请求 ptlogin 验证。skey 有效期 50 分钟，配 `SessionRenewInterval` 定期续期保活。
+- **第三方鉴权（AP）/ APS**：海外/外部账号系统用字符串账号，TSF4G 造了 **AuthProxy / APS（鉴权代理服务）** 模拟即通环境。**GCP 模式把鉴权彻底外包给 APS**——接新平台只改 APS，TCONND 零改动。APS 内含 AuthSvr（鉴权）、DHSvr（DH 密钥协商）、IDSvr（账号映射）。
+
+**通信加密**：QQ/GCP 支持 TEA/QQ/AES/AES2 对称加密。密钥协商方式 `KeyMethod`：`DH`（不传密钥、交换计算因子最安全，需 Apollo 支持）/ `Server`（TCONND 直接下发随机 KEY，简单）/ `Auth`（从鉴权票据取 KEY，如 CTLogin ST 票据）/ `None`。聊天等非敏感包可用 FRAME 的 `NoEnc=1` 跳过加密省 CPU——**因为 TCONND 的性能热点就是加解密**（见性能章节）。
+
+### 排队机制：保护后端不被瞬间打爆
+
+开服瞬间几十万人涌入，GameSvr 顶不住。TCONND 内置 **FIFO 排队队列**，鉴权通过后不立刻发 START：
+
+- **`Permit`**：在线连接总数上限，满了新连接排队，有人断开才放行（保护后端处理能力，0=不限）。
+- **`Speed`**：每秒放行连接数（削平开服洪峰，无论 Permit 是否设置都生效）。
+- **动态调整**：GameSvr 可发 `TFRAMEHEAD_CMD_SET_WAITCTR` 命令临时收紧放行数，TCONND 在静态配置与动态值间**取最小**，默认 1 分钟后失效。
+- QQ/GCP 模式排队集成在握手里，会定期给客户端推排队进度；VIP uin 可免排队；**断线重连/跨服跳转不受排队限制**。
+
+### 流量控制 / 空闲关闭 / 包合并（三个运维旋钮）
+
+- **流量控制** `TransLimit`：限每连接每秒包数（`PkgSpeed`）和字节数（`ByteSpeed`），超限按 `LimitAction` 断连或丢包。实现上是**每 10 秒查 10 秒窗口是否超 10 倍配置**（不是逐秒判断，降开销）。
+- **空闲连接关闭** `MaxIdle`：一段时间无上行包就断，推荐 5 分钟或心跳间隔的 2~3 倍。
+- **消息包合并**：GameSvr 下发小包时，IP+TCP 头就占 40+ 字节，有效载荷占比低。TCONND 攒够 `MergeSize` 或超 `MergeTimeout` 再一次性发，多消息共用一个 IP/TCP 头，还减少 TCP ACK 数。急包可标 `chSendImmediately` 立即发。
 
 ## 为什么这么做
 
-**为什么把接入独立成 tconnd，而不是业务进程自己 accept？**
+**为什么把接入独立成 TCONND，而不是业务进程自己 accept？**
 
-- **职责分离**：逻辑服跑帧循环（如 15/30 tick），最怕被 I/O 阻塞。接入层扛住 epoll 收发与加解密，逻辑服只收到干净消息，帧率稳定。
-- **连接收敛**：几百个业务进程若各自监听公网，等于几百个攻击面、几百套 TLS/协议栈。收敛到接入层一处，安全、限流、防刷统一做。
-- **弹性解耦**：后端逻辑服可以扩缩容、迁移、重启，玩家连接挂在 tconnd 上不受影响（配合 session 保持），只需重路由。
-- **有状态就近**：一条连接 = 一个玩家会话，tconnd 记住"这个玩家路由到哪台逻辑服"，实现连接与后端的稳定亲和。
+- **职责分离**：GameSvr 跑帧循环，最怕被 I/O 阻塞。接入层扛 epoll 收发与加解密，GameSvr 只收到干净的 FRAME 消息，帧率稳定。手册原话——**"把开发人员从与业务无关的数据收发与连接管理中解放出来"**。
+- **连接收敛**：几百个业务进程若各自监听公网 = 几百个攻击面、几百套协议栈。收敛到接入层，安全/限流/防刷/加密统一做。
+- **弹性解耦**：GameSvr 可扩缩容、迁移、重启，玩家连接挂在 TCONND 上（配合 session 保持）只需重路由。
+- **有状态就近**：一条连接 = 一个玩家会话，TCONND 记住"这个玩家路由到哪台 GameSvr"，实现连接与后端的稳定亲和。
+
+**为什么 TCONND ↔ GameSvr 走 TBUS 而非 TCP？**
+
+TBUS 是**共享内存**通道，同机进程间零拷贝、无内核态 socket 开销，且**保证消息完整性**（所以 FRAME 头才敢不带长度字段）。跨机才退化到 TCP。这正是"内网通信榨性能、外网通信保通用"的分层。
 
 **为什么用私有二进制协议而非 HTTP/JSON？**
 
-- 包更小（省移动网络带宽、省电），解析更快（无文本解析），且不自描述 = 抓包/外挂逆向门槛更高。
+包更小（省移动网络带宽、省电），解析更快（无文本解析），且不自描述 = 抓包/外挂逆向门槛更高。
+
+## 集群化：从"一对一绑死"到"网状路由"
+
+早期 TCONND 和 GameSvr **一对一部署**。接入 TGW（腾讯网关）后，客户端被随机分到某个 TCONND → 随机落到某个 GameSvr，**无法指定登录哪台、断线重连也回不到原 GameSvr**（除非开 TGW 会话保持，但伤性能）。
+
+**集群化方案**把它改成**交叉网状**：
+
+```mermaid
+flowchart TB
+  subgraph TC["TCONND 集群（无状态接入）"]
+    T1[TCONND-1]
+    T2[TCONND-2]
+  end
+  subgraph CA["ClusterAgent（每机一个，GameSvr 的路由代理）"]
+    A1[Agent-1]
+    A2[Agent-2]
+  end
+  subgraph GS[GameSvr 集群]
+    G1["GameSvr-1<br/>(Type1,Zone1) ServerID=10001"]
+    G2["GameSvr-2<br/>(Type1,Zone3) ServerID=10002"]
+  end
+  T1 --- A1 & A2
+  T2 --- A1 & A2
+  A1 --- G1
+  A2 --- G2
+```
+
+**核心机制：**
+- **路由信息三元组 `TypeID + ZoneID + ServerID`**：Type/Zone 从两个维度分组（全区全服可退化成一个值），ServerID 全局唯一标识一台 GameSvr。GameSvr 通过 ClusterAgent 把路由注册到每个 TCONND。
+- **两种登录**：① 指定区服（Type+Zone）→ TCONND 在该组内按账号**一致性哈希 / CRC 求模**选一台；② 定点登录（直接指 ServerID）。
+- **路由跳转 / 定向发送**：GameSvr 发 `TFRAMEHEAD_CMD_CLUSTER_SETROUTING` 让某连接后续发包改投另一台；客户端也能用 `tgcpapi_send_with_route` 把消息发给指定 GameSvr（跨图/跨服）。
+- **断线重连**：TCONND 建连时把登录点路由下发给客户端（GcpApi 存内存），重连带上路由 → **不管连到哪台 TCONND 都能回到原 GameSvr**，无需 TGW 会话保持。
+
+**容灾（四道防线）：**
+1. **ClusterAgent → GameSvr 心跳**：超时（默认 `HeartBeatAliveTime=30s`）标记 GameSvr 不可用，上报 TCONND 剔除。
+2. **TCONND → ClusterAgent 靠 TCP 连接状态**：连接异常则把该 Agent 注册的 GameSvr 全置不可用。
+3. **GameSvr 不可用后**：新连接不再分配过去（定点登录直接关连接）；已有连接若无上行包则保留，GameSvr 恢复后仍可通信；有上行包默认关连接（除非客户端标了"数据可丢失"）。
+4. **ClusterAgent → TCONND 链路异常**：定期重连，其间 GameSvr 有下行则回 STOP（reason=`TCONND_UNREACHABLE`）。
+5. **排队后移**：一对一时 TCONND 直接为 GameSvr 排队；集群化下一台 GameSvr 被多个 TCONND 接入，单个 TCONND 无法独立限流，**排队功能上移到 ClusterAgent**（它是 GameSvr 的唯一入口代理）。
+
+> 集群化目前支持 **GCP 与 WebSocket** 模式。
 
 ## 为什么别的选择不行
 
@@ -130,25 +243,44 @@ sequenceDiagram
 | 方案 | 为什么不适合游戏接入 |
 |---|---|
 | **Nginx / API Gateway** | 面向无状态短连接 HTTP，不懂私有二进制帧，不做游戏 session 保持，长连接管理与心跳非其所长 |
-| **gRPC / HTTP2 网关** | 强 schema、文本/protobuf 之上还有 HTTP2 帧开销；移动弱网下头部与握手成本偏高；难塞自研加密与反外挂 |
+| **gRPC / HTTP2 网关** | 强 schema、HTTP2 帧开销；移动弱网下头部与握手成本偏高；难塞自研加密与反外挂 |
 | **让逻辑服直连** | I/O 抢占逻辑帧、公网攻击面爆炸、扩缩容时连接全断 |
 | **无状态负载均衡** | 长连接 + 玩家亲和要求"同一玩家稳定打到同一后端"，纯轮询/最少连接会打散会话 |
+| **纯靠 TGW 会话保持做亲和** | 伤 TGW 性能；且随机分配无法定点登录、跨服跳转、精细路由 |
 :::
 
-游戏接入的三个硬约束——**有状态长连接、私有低延迟协议、会话保持**——决定了通用网关不能直接替代，必须自研接入层。
+游戏接入的硬约束——**有状态长连接、私有低延迟协议、会话保持、玩家↔后端稳定亲和**——决定了通用网关不能直接替代，必须自研接入层，并在规模变大后演进出集群化路由。
 
 ## 沉淀结论
 
+### 性能数据（记几个数量级，面试够用）
+
+基于公开性能报告（Tconnd 3.x，8 核 8G 老机器 X3440），**记结论不记精确值**：
+
+| 模式 | 量级参考 | 关键结论 |
+| --- | --- | --- |
+| **QQ/GCP（TCP+加密）** | 单进程数万包/秒；单连接内存 ~0.1M | 加密是性能热点 |
+| **TDR（纯透传）** | 10w 在线仍稳定；单连接内存 ~0.6M | 无鉴权无加密，最快 |
+| **UDP** | 20w+ 包/秒 | 无连接管理开销，吞吐最高 |
+| **WebSocket** | CPU 90% 时 7w 上行+7w 下行（关 SSL）；开 SSL 降到 4.5w | SSL 砍一半 |
+
+**几条一致规律：**
+- 在线数固定时，**包大小↑ → 处理包数↓、总吞吐↑**（大包摊薄每包固定开销）。
+- 包大小固定时，处理包数与在线数**非线性**，往往几百~千余连接时单位时间处理包数最多（连接太多调度开销上升）。
+- 内存模型：**总内存 = 基础内存 + 连接数 × 单连接内存**，单连接内存主要由 `UpSize`/`DownSize` 缓冲区决定。
+- **压缩（LZ4）**：炫斗业务实测压缩率 40~45%。**开压缩反而可能省 CPU**——因为压缩后数据变短，加密的字节更少，加密才是大头。合包场景下行包量可压 16 倍、CPU 从 38% 降到 10%。
+
 ::: tip 结论
-- tconnd = **有状态接入网关**：长连接维持 + 收发切帧 + 心跳 + 加解密 + session 管理 + 路由到 [TBus](/game-infra/tbus.md)。
-- 私有协议用 **length-prefixed 帧**解决粘包，魔数 + 长度上限防脏流量/超大包攻击。
-- **连接可断，会话不断**：session 带 TTL，断线重连凭 token 复用后端内存态，避免重登录。
-- 之所以自研而非通用网关，本质是游戏"有状态 + 私有协议 + 低延迟"三条约束通用网关满足不了。
-- 接入层把 I/O 与逻辑解耦，逻辑服帧率稳定、后端可弹性伸缩。
+- TCONND = TSF4G 的**有状态接入网关**：epoll 长连接 + FRAME/TBUS 分包 + 心跳 + 鉴权加解密 + session + 排队 + 路由，把 I/O 与逻辑解耦，GameSvr 帧率稳定、后端可弹性伸缩。
+- **五模式**沿"账号与鉴权的灵活性"演进：TDR（裸透传）→ QQ（端游写死 uin）→ WEB（页游穿透 HTTP）→ UDP → **GCP（手游主力：灵活账号 + 委托 APS 鉴权 + 账号映射 + 压缩）**。
+- **FRAME 协议**靠 `iConnIdx`（TCONND 分配，标识连接）与 `iID`（GameSvr 分配，标识会话）双索引绑定连接与会话；头不带长度是因为 **TBUS 保证消息完整性**。
+- **连接可断，会话不断**：`ReconnValidSec` 保留 TTL，凭身份信息重连复用后端会话；接入 TGW 后靠"重连带鉴权数据 + RelayFlag"兜底，锁屏靠 `EnlargeReconnScopeFlag` 兜底。
+- **集群化**用 `Type/Zone/ServerID` 三元组 + ClusterAgent 把随机分配升级成可定点、可跳转、可回原点的网状路由，排队上移到 Agent，四道容灾防线保命。
+- **性能热点是加解密**，所以有 NoEnc 免加密、LZ4 压缩省加密字节、包合并省包头——三招都在绕开这个热点。
 :::
 
-**相关专题**：[TBus 进程间通信总线](/game-infra/tbus.md) · [自研 Mesh 服务网格 × K8s](/game-infra/xmesh-k8s.md) · [限流与熔断](/game-infra/ratelimit-circuitbreak.md)
+**相关专题**：[TBus 进程间通信总线](/game-infra/tbus.md) · [一致性哈希实现](/game-infra/consistent-hash-impl.md) · [自研 Mesh 服务网格 × K8s](/game-infra/xmesh-k8s.md) · [限流与熔断](/game-infra/ratelimit-circuitbreak.md)
 
 ## 内容来源
 
-综合整理。参考方向：Reactor / epoll 网络模型通用原理、TCP 粘包/半包与 length-prefixed 帧的行业通行做法、游戏接入层（connsvr/gateway 类组件）公开架构讨论、腾讯游戏后台组件生态（tconnd + TBus 配合）的公开介绍。tconnd 内部实现细节未公开，本文仅从设计思想与取舍层面描述。
+综合整理自 TSF4G-TCONND 系列公开手册（开发指导手册 v3.3、集群化开发指导手册、手游接入指引、运维指导手册、性能测试报告）中的**设计原理与架构取舍**，配合 Reactor/epoll、TCP 粘包/半包、length-prefixed 帧等行业通行做法。性能数字仅取数量级用于面试表达，不代表当前版本精确指标；内部实现细节未公开，本文仅从设计思想层面描述。
