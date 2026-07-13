@@ -104,6 +104,7 @@ export const sidebar = {
         '/ai-llm/rag.md',
         '/ai-llm/rag-context-pruning.md',
         '/ai-llm/rag-data-cleaning.md',
+        '/ai-llm/rag-storage-cleanup.md',
         '/ai-llm/agent-dev.md',
       ],
     },
