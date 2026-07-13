@@ -102,6 +102,7 @@ export const sidebar = {
         '/ai-llm/llm-fundamentals.md',
         '/ai-llm/llm-inference-optimization.md',
         '/ai-llm/rag.md',
+        '/ai-llm/rag-context-pruning.md',
         '/ai-llm/agent-dev.md',
       ],
     },
