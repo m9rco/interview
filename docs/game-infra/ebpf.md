@@ -103,6 +103,174 @@ char _license[] SEC("license") = "GPL";
 `SEC(".maps")` 声明的是 BTF 风格 map,配合 CO-RE(Compile Once – Run Everywhere)+ libbpf,同一份编译产物可在不同内核版本上运行,免去为每个内核头文件重编译。
 :::
 
+### 实战:用 XDP 在驱动层防御 SYN Flood
+
+#### SYN Flood 原理:打爆半连接队列
+
+TCP 三次握手里,服务端收到第一个 `SYN` 后就要**分配一个"半连接"状态**(放进 SYN 队列 / `syn_backlog`),回 `SYN-ACK`,然后**等客户端的 `ACK`**。攻击者正是钻这个空子:
+
+```mermaid
+sequenceDiagram
+  participant A as 攻击者(常伪造源IP)
+  participant S as 服务端
+  A->>S: SYN (src=随机伪造IP)
+  Note over S: 分配半连接槽<br/>入 SYN 队列, 回 SYN-ACK
+  S-->>A: SYN-ACK (发往被伪造的受害者)
+  Note over A: 永不回 ACK
+  Note over S: 半连接槽被占住,<br/>SYN-ACK 反复重传直到超时
+  A->>S: 海量 SYN 持续灌入...
+  Note over S: SYN 队列被占满 →<br/>真实用户的 SYN 被丢弃 (拒绝服务)
+```
+
+- **要害是"半开连接"**:每个 SYN 只需攻击者发一个小包,却让服务端**分配状态 + 回包 + 计时重传**,是典型的**放大型资源耗尽**。
+- **常配合源 IP 伪造**:源 IP 是随机伪造的,所以 (1) 按源 IP 封禁没用——每个 IP 只来几个包;(2) `SYN-ACK` 发给了无辜的第三方(反射)。
+- **结果**:SYN 队列(backlog)被半连接占满,合法用户的 SYN 无槽可分,握手失败——服务对外"假死"。传统内核缓解手段是 **SYN Cookie**(不占队列、用加密序号编码状态)、调大 backlog、减少 `SYN-ACK` 重试次数。
+
+#### XDP 防御:在协议栈之前就拦 SYN
+
+XDP 挂在**网卡驱动**,是包进入内核的**最早一站**——比 conntrack、比分配半连接槽都早。在这里丢掉恶意 SYN,服务端**根本不会为它分配任何状态**,CPU 也不用走完协议栈。下图对比"恶意 SYN 在哪一层被丢",越靠左丢、已浪费的资源越少:
+
+```mermaid
+flowchart LR
+  PKT([SYN 包到达网卡]) --> XDP{{XDP<br/>网卡驱动}}
+  XDP -->|XDP_DROP<br/>恶意 SYN 到此为止| DROP[["✅ 最省<br/>不分配状态/不进栈"]]
+  XDP -->|XDP_PASS<br/>合法 SYN| STACK[内核协议栈<br/>netfilter/conntrack]
+  STACK --> BL[分配半连接槽<br/>入 SYN 队列 + 回 SYN-ACK]
+  BL --> USER[用户态 accept]
+
+  IPT["iptables 在此丢<br/>❌ 已走一段协议栈"] -.-> STACK
+  UD["用户态防火墙在此丢<br/>❌ 状态与回包开销已付出"] -.-> USER
+
+  style XDP fill:#e8f5e9,stroke:#2e7d32
+  style DROP fill:#c8e6c9,stroke:#2e7d32
+  style IPT fill:#ffebee,stroke:#c62828
+  style UD fill:#ffebee,stroke:#c62828
+```
+
+三层组合拳:
+
+1. **只对"纯 SYN"生效**(`SYN=1 且 ACK=0`,握手第一个包),正常 ACK/数据包直接放行,不误伤已建连接。
+2. **per-源IP 令牌桶动态限速**:每个源 IP 一个令牌桶(存 BPF map),按时间自动补充令牌;某源 IP 的 SYN 速率超过阈值就 `XDP_DROP`。"动态"体现在阈值和桶参数可由用户态随时改 map、按攻击态势调整。
+3. **应对伪造源 IP**:per-IP 限速对"每个伪造 IP 只发几个包"的分散攻击无效,所以再叠加**全局 SYN 速率上限** + **XDP SYN Cookie / SYN Proxy**——在 XDP 直接用加密 cookie 回 `SYN-ACK`,只有回来的 `ACK` 带对合法 cookie 才放行进栈。伪造源收不到 `SYN-ACK`(发给了受害者)也就无法完成握手,天然过滤掉伪造流量。Cloudflare、Cilium 的 DDoS 数据面就是这套。
+
+三层过滤叠起来就是一条"由粗到细"的漏斗,恶意流量层层被削,只有真正合法的握手才进协议栈:
+
+```mermaid
+flowchart TB
+  IN([网卡收到的所有 SYN]) --> L0{是纯 SYN?<br/>SYN=1 &amp; ACK=0}
+  L0 -->|否: ACK/数据/已建连接| PASS0[XDP_PASS 放行]
+  L0 -->|是| L1{全局 SYN 速率<br/>超总阈值?}
+  L1 -->|是: 整体被打爆| DROP1[XDP_DROP]
+  L1 -->|否| L2{该源IP 令牌桶<br/>还有令牌?}
+  L2 -->|否: 单源猛发| DROP2[XDP_DROP]
+  L2 -->|是| L3{疑似伪造源?<br/>SYN Cookie/Proxy 校验}
+  L3 -->|cookie 不合法/收不到 ACK| DROP3[XDP_DROP]
+  L3 -->|握手回环通过| PASS[放行进协议栈<br/>才分配半连接状态]
+
+  style DROP1 fill:#ffebee,stroke:#c62828
+  style DROP2 fill:#ffebee,stroke:#c62828
+  style DROP3 fill:#ffebee,stroke:#c62828
+  style PASS fill:#c8e6c9,stroke:#2e7d32
+```
+
+下面是核心的 **per-源IP SYN 令牌桶限速** XDP 程序(对应上图第 2 层),其内部决策流程如下:
+
+```mermaid
+flowchart TB
+  A([进入 xdp_syn_guard]) --> B{边界检查<br/>eth/ip/tcp 头完整?}
+  B -->|越界| P1[XDP_PASS]
+  B -->|完整| C{IP 协议 == TCP?}
+  C -->|否| P2[XDP_PASS]
+  C -->|是| D{纯 SYN?<br/>syn &amp;&amp; !ack}
+  D -->|否| P3[XDP_PASS 不误伤]
+  D -->|是| E{map 里有<br/>该源IP 的桶?}
+  E -->|无| F[建桶初始化<br/>XDP_PASS 放行首包]
+  E -->|有| G[按流逝时间补令牌<br/>refill, 上限 = BURST]
+  G --> H{tokens ≥ 1 个?}
+  H -->|是| I[扣 1 个令牌<br/>XDP_PASS]
+  H -->|否| J[XDP_DROP<br/>驱动层直接丢]
+
+  style J fill:#ffebee,stroke:#c62828
+  style I fill:#c8e6c9,stroke:#2e7d32
+  style F fill:#c8e6c9,stroke:#2e7d32
+```
+
+```c
+// xdp_synflood.c —— 只对 TCP 纯 SYN 做 per-源IP 令牌桶限速, 超速在驱动层丢
+#include <linux/bpf.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/in.h>
+#include <bpf/bpf_helpers.h>
+
+struct bucket {
+    __u64 tokens;    // 剩余令牌(定点数, ×SCALE 避免浮点, verifier 也不允许浮点)
+    __u64 last_ns;   // 上次补充令牌的时间戳
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);     // LRU: 表满自动淘汰最久未见的源IP
+    __uint(max_entries, 1000000);
+    __type(key, __u32);                       // 源 IP
+    __type(value, struct bucket);
+} syn_bucket SEC(".maps");
+
+#define RATE  50ULL          // 每源IP 每秒允许的 SYN 数
+#define BURST 100ULL         // 桶容量(允许的突发)
+#define SCALE 1000ULL        // 定点放大倍数
+
+SEC("xdp")
+int xdp_syn_guard(struct xdp_md *ctx) {
+    void *data = (void *)(long)ctx->data, *end = (void *)(long)ctx->data_end;
+
+    struct ethhdr *eth = data;
+    if ((void *)(eth + 1) > end) return XDP_PASS;
+    if (eth->h_proto != __constant_htons(ETH_P_IP)) return XDP_PASS;
+
+    struct iphdr *ip = (void *)(eth + 1);
+    if ((void *)(ip + 1) > end) return XDP_PASS;
+    if (ip->protocol != IPPROTO_TCP) return XDP_PASS;
+
+    // IP 头长度可变(ihl 以 4 字节为单位), verifier 要求解引用前做边界检查
+    __u32 ihl = ip->ihl * 4;
+    if (ihl < sizeof(*ip)) return XDP_PASS;
+    struct tcphdr *tcp = (void *)ip + ihl;
+    if ((void *)(tcp + 1) > end) return XDP_PASS;
+
+    // 只拦"纯 SYN"(握手第一个包); 其余(ACK/数据/已建连接)一律放行, 不误伤
+    if (!(tcp->syn && !tcp->ack)) return XDP_PASS;
+
+    __u32 src = ip->saddr;
+    __u64 now = bpf_ktime_get_ns();
+    struct bucket *b = bpf_map_lookup_elem(&syn_bucket, &src);
+    if (!b) {                                    // 首次见到该源IP: 建桶并放行
+        struct bucket nb = { .tokens = (BURST - 1) * SCALE, .last_ns = now };
+        bpf_map_update_elem(&syn_bucket, &src, &nb, BPF_ANY);
+        return XDP_PASS;
+    }
+
+    // 按流逝时间补充令牌(每秒 RATE 个), 直接改 map 里的值(lookup 返回的是内核态指针)
+    __u64 refill = (now - b->last_ns) * RATE * SCALE / 1000000000ULL;
+    __u64 tok = b->tokens + refill;
+    if (tok > BURST * SCALE) tok = BURST * SCALE;   // 不超过桶容量
+    b->last_ns = now;
+
+    if (tok >= SCALE) {          // 有一个整令牌 → 扣减并放行
+        b->tokens = tok - SCALE;
+        return XDP_PASS;
+    }
+    b->tokens = tok;
+    return XDP_DROP;             // 令牌耗尽 → 驱动层直接丢, 服务端不分配任何半连接状态
+}
+
+char _license[] SEC("license") = "GPL";
+```
+
+::: tip
+用户态可随时改写 `RATE`/`BURST`(做成 map 里的可配置项)或读 `syn_bucket` 观察哪些源 IP 在猛发 SYN——这就是"**内核态高速丢包 + 用户态动态调参/观测**"的分工。真正生产级方案会再叠加 XDP SYN Proxy 来抵御伪造源,单纯 per-IP 限速只挡得住"少数真实 IP 的高频 SYN"。
+:::
+
 ## 为什么这么做
 
 **为什么 eBPF 能替代 iptables/kube-proxy?**
@@ -117,6 +285,8 @@ char _license[] SEC("license") = "GPL";
 Service 数以千计时,iptables 的线性链是硬伤;eBPF 用 map 查表把 Service→Backend 变成 O(1),更新只改一个 entry。这是 Cilium 能"替掉 kube-proxy"的技术根因。
 
 **为什么可观测/安全也选它?** kprobe/uprobe 让你在**不改被观测程序、不停服**的前提下,把探针挂到任意内核/用户函数上取现场数据(如 `bpftrace -e 'kprobe:tcp_retransmit_skb {...}'` 直接统计重传);LSM BPF 让安全策略在内核态的钩子上生效,绕不过去。共同点都是:**内核态执行(快、全)+ 动态加载(不重启)+ verifier 兜底(不崩)**。
+
+**为什么防 SYN Flood 要用 XDP 而不是内核 SYN Cookie 或用户态防火墙?** 位置决定成本。SYN Flood 的杀伤力在于"让服务端为每个恶意 SYN 分配半连接状态 + 回包重传",越晚拦截、已经浪费的资源越多:走到用户态才丢,协议栈和半连接槽的开销已经付出;内核 SYN Cookie 虽不占队列,但仍要为每个 SYN 计算并回包。XDP 挂在**网卡驱动最前端**,恶意 SYN 在这里 `XDP_DROP`,服务端**连状态都不分配、包都不进协议栈**,是能做到的最省的丢弃点;配合 map 令牌桶还能**动态按源 IP / 按态势限速**,这是静态 iptables 规则做不到的。
 
 ## 为什么别的选择不行
 
@@ -138,6 +308,7 @@ eBPF 不是银弹,verifier 的约束很硬:早期内核不支持无界循环(需
 - eBPF = **内核态安全沙箱 VM**:verifier(不崩)+ JIT(够快)+ Map(通用户态)+ 动态加载(不重启)。记住这四点就抓住了本质。
 - 挂载点分三类:**网络**(XDP/tc)、**追踪**(kprobe/uprobe/tracepoint)、**安全**(LSM)。按"在哪拦"选点。
 - 替代 iptables 的根因是 **O(1) map 查找 vs O(N) 规则链**;可观测/安全的价值是**不改程序、不停服地拿到内核态真相**。
+- **防 SYN Flood**:SYN Flood 靠"半开连接"耗尽 backlog + 常伪造源 IP。XDP 在**驱动层最早拦纯 SYN**,恶意包不进协议栈、不分配半连接状态;用 map 令牌桶做 **per-源IP 动态限速**,再叠加 **SYN Cookie/Proxy** 抵御伪造源。核心是"越早拦越省"。
 - 代价是 **verifier 约束 + 内核版本依赖**,上线前先对齐内核特性矩阵。
 - 一句话选型:**要内核态性能与可见性、又不能承担改内核的崩机与重启风险时,用 eBPF。**
 
