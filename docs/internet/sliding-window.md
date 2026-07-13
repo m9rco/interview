@@ -80,7 +80,7 @@ HTTP/2 在**一个 TCP 连接上多路复用多个 stream**（每个请求一个
 
 ```mermaid
 flowchart TD
-    subgraph "一个 TCP 连接"
+    subgraph tcpconn["一个 TCP 连接"]
         CW["连接级窗口<br/>Connection-level"] 
         CW --> S1["流1 窗口"]
         CW --> S2["流2 窗口"]

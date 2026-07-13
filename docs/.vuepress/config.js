@@ -5,6 +5,7 @@ import { searchPlugin } from '@vuepress/plugin-search'
 import { markdownChartPlugin } from '@vuepress/plugin-markdown-chart'
 import { markdownExtPlugin } from '@vuepress/plugin-markdown-ext'
 import { markdownStylizePlugin } from '@vuepress/plugin-markdown-stylize'
+import { markdownMathPlugin } from '@vuepress/plugin-markdown-math'
 import { navbar } from './configs/navbar.js'
 import { sidebar } from './configs/sidebar.js'
 
@@ -59,5 +60,7 @@ export default defineUserConfig({
     markdownExtPlugin({ gfm: true, tasklist: true, footnote: true }),
     // 文本样式：对齐、上标、下标、标记
     markdownStylizePlugin({ align: true, sup: true, sub: true, mark: true }),
+    // 数学公式：$...$ 行内、$$...$$ 块级，用 KaTeX 渲染
+    markdownMathPlugin({ type: 'katex' }),
   ],
 })

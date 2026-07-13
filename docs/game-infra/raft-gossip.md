@@ -119,7 +119,7 @@ graph LR
         A0 -->|随机选 fanout=2| B1["B"]
         A0 --> C1["C"]
     end
-    subgraph 第2轮 "已知节点各自再传"
+    subgraph round2["第2轮 已知节点各自再传"]
         B1 --> D2["D"]
         B1 --> E2["E"]
         C1 --> F2["F"]

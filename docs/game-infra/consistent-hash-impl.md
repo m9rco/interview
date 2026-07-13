@@ -81,7 +81,7 @@ func (r *RingHash) Get(key string) string {
 
 ```mermaid
 graph TD
-    subgraph 哈希环 "0 → 2^32 顺时针"
+    subgraph ring["哈希环 0 → 2^32 顺时针"]
     end
     K["key: hash=1500"] -.顺时针.-> B
     A["nodeA#0 @1000"] --> B["nodeB#3 @2000<br/>(命中)"]
@@ -154,7 +154,7 @@ func (m *Maglev) Lookup(key string) string {
 
 ```mermaid
 graph LR
-    subgraph 构建期 "轮流填表 (permutation)"
+    subgraph build["构建期 轮流填表 (permutation)"]
         B0["backend0<br/>offset=2 skip=3"] -->|填 2,5,1...| T
         B1["backend1<br/>offset=0 skip=5"] -->|填 0,5→占→3...| T
         B2["backend2<br/>offset=4 skip=2"] -->|填 4,6,...| T

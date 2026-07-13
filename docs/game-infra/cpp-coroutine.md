@@ -4,7 +4,7 @@ title: C++ 协程：有栈 vs 无栈 vs C++20 原生（函数染色与 libco）
 
 # C++ 协程：有栈 vs 无栈 vs C++20 原生（函数染色与 libco）
 
-> 协程的所有分歧都归结到一个问题：**挂起时，那个"执行现场"存在哪里。** 有栈协程给每个协程一整条独立栈，任意深处都能挂起、老代码一行不改；无栈协程（C++20）把现场编译成一个堆上定长帧，省内存、切换廉价、能撑百万并发，代价是 `co_await` 病毒式传染函数签名——这就是"函数染色（function coloring）"。
+> 协程的所有分歧都归结到一个问题：**挂起时，那个"执行现场"存在哪里。** 有栈协程给每个协程一整条独立栈，任意深处都能挂起、老代码一行不改；无栈协程把现场编译成一个定长帧，省内存、切换廉价、能撑百万并发，代价是 `co_await` 病毒式传染函数签名——这就是"函数染色（function coloring）"。无栈并非 C++20 独有：C++11 就能用 Duff's device 宏手写状态机（Protothreads / Boost.Asio），C++20 只是把这套状态机交给编译器自动、安全地生成。
 
 ## 场景问题
 
@@ -21,18 +21,18 @@ title: C++ 协程：有栈 vs 无栈 vs C++20 原生（函数染色与 libco）
 
 ```mermaid
 graph TD
-    subgraph 有栈协程 "Stackful (libco / boost.context)"
+    subgraph stackful["Stackful 有栈 (libco / boost.context)"]
         S1["协程A: 独立完整栈<br/>(如 128KB)"] -->|"切换: 保存 SP+寄存器<br/>换栈指针"| S2["协程B: 独立完整栈"]
-        S1 -.-> D1["可在任意嵌套深处挂起<br/>f()->g()->h() 里 yield 都行"]
+        S1 -.-> D1["可在任意嵌套深处挂起<br/>f()-&gt;g()-&gt;h() 里 yield 都行"]
     end
-    subgraph 无栈协程 "Stackless (C++20)"
-        C1["协程A: 堆上定长帧<br/>(编译期算出大小)"] -->|"切换: 存/恢复几个字段<br/>无栈拷贝"| C2["协程B: 堆上定长帧"]
+    subgraph stackless["Stackless 无栈 (C++11 宏 / C++20 原生)"]
+        C1["协程A: 定长帧<br/>(编译期/手写状态机)"] -->|"切换: 存/恢复几个字段<br/>无栈拷贝"| C2["协程B: 定长帧"]
         C1 -.-> D2["只能在 co_await/co_yield 点挂起<br/>无独立栈, 深调用需层层 co_await"]
     end
 ```
 
 - **有栈协程（Stackful）**：每个协程分配一条**独立完整的调用栈**（如 libco 默认 128KB）。挂起 = 保存当前 CPU 寄存器（含栈指针 SP、指令指针）到协程结构，切到另一条栈。因为有自己的栈，**可以在任意嵌套函数的深处挂起**（`f()→g()→h()` 里 `h` 想 yield 直接 yield）。代表：libco、boost.context、ucontext、fcontext。
-- **无栈协程（Stackless）**：编译器把协程函数**改写成一个状态机**，局部变量和"当前执行到哪一步"打包成一个**堆上定长帧（coroutine frame）**，大小编译期就算好。挂起 = 记住状态机走到第几步、保存几个字段，**没有独立栈**。因此**只能在 `co_await`/`co_yield` 这些显式挂起点挂起**，深调用栈里的挂起必须靠层层 `co_await` 传上来。代表：C++20 原生协程。
+- **无栈协程（Stackless）**：把协程函数**改写成一个状态机**，局部变量和"当前执行到哪一步"打包成一个**定长帧（coroutine frame）**，大小固定。挂起 = 记住状态机走到第几步、保存几个字段，**没有独立栈**。因此**只能在显式挂起点挂起**，深调用栈里的挂起必须靠层层传递上来。这个"状态机 + 无独立栈"的思路**并非 C++20 才有**——早在 C++11/C++03 就能用 **Duff's device 宏技巧**手写（Protothreads、Boost.Asio 的 `asio::coroutine`）；C++20 只是让**编译器自动、类型安全地**生成这套状态机。代表：C++11 宏状态机（手写）、C++20 原生协程（编译器生成）。
 
 ### 有栈协程：libco 风格（C++11 时代自研）
 
@@ -67,6 +67,42 @@ int main() {
 ::: tip
 libco 的价值不在"协程"本身，而在 **hook + 独立栈 = 存量同步代码零改造异步化**。微信当年有海量用 `read`/`write` 写的同步阻塞服务，无法逐个重写成回调；libco 让它们直接跑成高并发协程服务。这是"规避函数染色"的经典工程手段。
 :::
+
+### 无栈协程的前身：C++11 宏 + Duff's device
+
+无栈协程不是 C++20 的发明。早在没有语言支持的 C++11/C++03 时代，就能用 **Duff's device**（`switch`/`case` 穿透）手写无栈协程：用**一个整数记住"上次执行到第几行"**，`switch(state)` 跳回该处继续。挂起就是"记住行号 + `return`"，没有独立栈——这正是无栈的本质。Simon Tatham 的 *Coroutines in C*、嵌入式界的 **Protothreads**（Adam Dunkels）、以及 **Boost.Asio 的 `asio::coroutine`**（`reenter`/`yield`/`fork` 宏）都是这一套，在 C++20 之前的异步网络代码里大量使用。
+
+```cpp
+// C++11 无栈协程：一个 int 记住"执行到第几行"，靠 switch 跳回该点继续
+#define CO_BEGIN(s)  switch (s) { case 0:
+#define CO_YIELD(s)  do { (s) = __LINE__; return; case __LINE__:; } while (0)
+#define CO_END       }
+
+struct Reader {                 // 跨挂起点存活的局部变量必须手动提成成员——无栈的代价
+    int state = 0;              // 状态：记录上次挂起的行号
+    int i = 0;
+    void resume() {
+        CO_BEGIN(state);        // 展开成 switch(state){ case 0:
+        for (i = 0; i < 3; ++i) {
+            do_read(i);
+            CO_YIELD(state);    // 挂起：state=__LINE__; return; 下次 switch 跳回 case __LINE__
+        }
+        CO_END;                 // 展开成 }
+    }
+};
+// 外层循环：while 反复 r.resume()，每次从上次 yield 处继续，直到跑完
+```
+
+`CO_YIELD` 展开后是 `state = __LINE__; return; case __LINE__:;`——`return` 让出，下次进来 `switch(state)` 直接跳到那个 `case __LINE__` 标号，接着往下执行。整个"现场"就是 `state` 这一个 int，没有栈拷贝、没有寄存器保存，切换极廉价。
+
+::: warning Duff's device 无栈协程的三条硬约束
+这套手写方案暴露了无栈协程的全部代价，也解释了 C++20 为什么要交给编译器：
+- **局部变量不跨挂起点存活**：宏不保存局部变量，任何要跨 `CO_YIELD` 存活的变量都得手动提成成员（如上面的 `i`）。C++20 编译器会自动把这些局部搬进协程帧。
+- **不能在嵌套函数里挂起**：`CO_YIELD` 只能出现在 `resume()` 本体，调用的普通函数内部无法让出——和 C++20 无栈一样，这是无栈的通病，也是**函数染色**的源头。
+- **不能把 `yield` 放进自己的 `switch`**：技巧本身占用了 `switch`，再嵌一层 `switch`（含 `case`）会和 Duff's device 的 `case __LINE__` 冲突。C++20 原生协程没有这个限制。
+:::
+
+C++20 相对这套手写方案的进步：编译器**自动生成状态机**（局部变量自动入帧、类型安全、可放进任意控制流），把宏的三条约束基本消除，只留下"深调用需层层 `co_await`"这一无栈固有特性。所以 C++11 宏协程和 C++20 原生协程**是同一种东西的手写版与编译器版**，不是两类协程。
 
 ### 无栈协程：C++20 原生
 
@@ -164,12 +200,13 @@ graph BT
 
 ## 沉淀结论
 
-- 协程的本质分歧是**挂起现场存哪**：有栈 = 独立完整栈（运行时）；无栈 = 堆上定长帧（编译期状态机）。
+- 协程的本质分歧是**挂起现场存哪**：有栈 = 独立完整栈（运行时）；无栈 = 定长帧（状态机）。
 - **有栈（libco/boost.context/ucontext）**：任意深处可挂起、老代码零改造（hook + 不改签名，规避函数染色），代价是栈内存大、并发受限。
-- **无栈（C++20）**：省内存、切换廉价、百万并发，代价是**只能在 co_await/co_yield 挂起**，且 `co_await` **病毒式传染函数签名 = 函数染色**，深调用栈/第三方同步代码难改造。
+- **无栈不是 C++20 才有**：C++11/C++03 就能用 **Duff's device 宏**（Protothreads、Boost.Asio `asio::coroutine`）手写状态机；C++20 只是让**编译器自动、类型安全地生成**这套状态机。二者是同一种东西的手写版与编译器版。
+- **无栈（C++11 宏 / C++20 原生）**：省内存、切换廉价、百万并发，代价是**只能在挂起点挂起**、跨挂起点的局部变量要进帧（手写版需手动提成成员），且 `co_await` **病毒式传染函数签名 = 函数染色**，深调用栈/第三方同步代码难改造。
 - **函数染色**：异步色沿调用链向上传染，同步函数无法 `co_await` 异步函数——这是无栈协程改造存量代码的最大阻力。
 - 选型口诀：**存量同步阻塞代码要平滑异步化 → 有栈（libco）；新写、追求百万并发与低内存 → C++20 无栈，但要接受函数染色。**
 
 ## 内容来源
 
-综合整理。参考资料：微信 libco 开源项目及其 hook 系统调用设计文档、boost.context / boost.coroutine2 文档、Linux `ucontext(3)` 手册、C++20 标准 `[coroutine]` 章节与 cppreference `std::coroutine_handle`/`promise_type`、Lewis Baker 的 C++ Coroutines 系列文章，以及 "What Color is Your Function?"（Bob Nystrom）关于函数染色的经典论述。
+综合整理。参考资料：微信 libco 开源项目及其 hook 系统调用设计文档、boost.context / boost.coroutine2 文档、Linux `ucontext(3)` 手册、Simon Tatham *Coroutines in C*（Duff's device 无栈协程）、Adam Dunkels 的 Protothreads、Boost.Asio `coroutine`（`reenter`/`yield`/`fork` 宏）、C++20 标准 `[coroutine]` 章节与 cppreference `std::coroutine_handle`/`promise_type`、Lewis Baker 的 C++ Coroutines 系列文章，以及 "What Color is Your Function?"（Bob Nystrom）关于函数染色的经典论述。
