@@ -95,9 +95,12 @@ export const sidebar = {
       text: '通用后台基础（跨域）',
       children: [
         '/common/concurrency.md',
+        '/common/go-gotchas.md',
         '/common/design-model.md',
         '/common/gc-stw.md',
         '/common/algo-ds.md',
+        '/common/sorting.md',
+        '/common/mysql-innodb.md',
         '/common/redis.md',
       ],
     },
