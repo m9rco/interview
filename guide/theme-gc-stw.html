@@ -1,0 +1,2204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🗑️ GC 与 STW · Go / JVM — 面试复习</title>
+<style>:root {
+  --bg: #ffffff;
+  --bg-2: #f6f8fa;
+  --bg-3: #eef1f4;
+  --fg: #1f2328;
+  --fg-dim: #57606a;
+  --fg-mute: #8b949e;
+  --link: #0969da;
+  --border: #d0d7de;
+  --border-soft: #e5e9ee;
+  --code-bg: #f6f8fa;
+  --code-fg: #24292f;
+  --accent: #0969da;
+  --warn-bg: #fff8c5;
+  --warn-border: #d4a72c;
+  --danger-bg: #ffebe9;
+  --danger-border: #ff8182;
+  --tip-bg: #ddf4ff;
+  --tip-border: #54aeff;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sidebar-w: 260px;
+}
+[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-2: #161b22;
+  --bg-3: #1c2128;
+  --fg: #e6edf3;
+  --fg-dim: #9198a1;
+  --fg-mute: #6e7681;
+  --link: #4493f8;
+  --border: #30363d;
+  --border-soft: #21262d;
+  --code-bg: #161b22;
+  --code-fg: #e6edf3;
+  --accent: #4493f8;
+  --warn-bg: #3d2c00;
+  --warn-border: #9e6a03;
+  --danger-bg: #3c1519;
+  --danger-border: #ff8182;
+  --tip-bg: #0c2d6b;
+  --tip-border: #4493f8;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== Layout ===== */
+.doc {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100vh;
+}
+.sidebar {
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-2);
+  padding: 20px 18px;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  font-size: 13.5px;
+}
+.sidebar h2 {
+  font-size: 13px;
+  color: var(--fg-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 16px 0 6px;
+  padding: 0 8px;
+  font-weight: 600;
+}
+.sidebar h2:first-child { margin-top: 0; }
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--fg);
+  padding: 0 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 12px;
+}
+.sidebar .brand small {
+  display: block;
+  font-weight: 400;
+  color: var(--fg-mute);
+  font-size: 12px;
+  margin-top: 3px;
+}
+.sidebar ul { list-style: none; padding: 0; margin: 0; }
+.sidebar li a {
+  display: block;
+  padding: 5px 8px;
+  color: var(--fg-dim);
+  border-radius: 4px;
+  border-left: 2px solid transparent;
+  line-height: 1.5;
+}
+.sidebar li a:hover { background: var(--bg-3); color: var(--fg); text-decoration: none; }
+.sidebar li a.active {
+  color: var(--link);
+  background: var(--bg-3);
+  border-left-color: var(--link);
+  font-weight: 600;
+}
+.sidebar li.sub a { padding-left: 22px; font-size: 12.5px; }
+.sidebar .tools {
+  margin-top: 20px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sidebar .tools button, .sidebar .tools a {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+.sidebar .tools button:hover, .sidebar .tools a:hover { border-color: var(--link); color: var(--link); }
+
+.content {
+  padding: 32px 48px 80px;
+  max-width: 900px;
+  min-width: 0;
+}
+
+/* mobile toggle */
+.menu-btn {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+/* ===== Typography ===== */
+.doc-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.doc-lede {
+  color: var(--fg-dim);
+  font-size: 15px;
+  margin: 0 0 32px;
+}
+
+.theme-block {
+  padding-top: 24px;
+  margin-bottom: 24px;
+  scroll-margin-top: 20px;
+}
+.theme-block + .theme-block {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 32px;
+}
+h2.theme-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  scroll-margin-top: 20px;
+}
+.tagline {
+  color: var(--fg-dim);
+  font-size: 13.5px;
+  margin: 0 0 20px;
+  font-style: italic;
+}
+
+h3.stage {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 28px 0 10px;
+  color: var(--fg);
+  scroll-margin-top: 20px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+h3.stage[data-stage="what-is"]::before     { content: '① '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="why-choose"]::before  { content: '② '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="what-broke"]::before  { content: '③ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="how-fixed"]::before   { content: '④ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="hero"]::before        { content: '☆ '; color: var(--fg-mute); font-weight: 400; }
+h3.stage[data-stage="sources"]::before     { content: '📎 '; }
+
+h4 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 20px 0 8px;
+  color: var(--fg);
+}
+
+p { margin: 8px 0 12px; }
+ul, ol { padding-left: 24px; margin: 8px 0 14px; }
+li { margin: 3px 0; }
+li > p { margin: 4px 0; }
+strong { font-weight: 600; }
+em {
+  font-style: normal;
+  background: var(--warn-bg);
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* code */
+code {
+  font-family: var(--mono);
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 87%;
+  color: var(--code-fg);
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 12px 0;
+}
+pre code { background: none; border: none; padding: 0; color: var(--fg); font-size: 100%; }
+
+/* table */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0 18px;
+  font-size: 13.5px;
+  display: block;
+  overflow-x: auto;
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: var(--bg-2); font-weight: 600; }
+tr:nth-child(even) td { background: var(--bg-2); }
+
+/* blockquote */
+blockquote {
+  border-left: 3px solid var(--border);
+  margin: 12px 0;
+  padding: 4px 14px;
+  color: var(--fg-dim);
+  background: var(--bg-2);
+  font-size: 14px;
+}
+
+/* callout */
+.callout {
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--link);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 14px 0;
+  background: var(--tip-bg);
+  font-size: 14px;
+}
+.callout.warn   { background: var(--warn-bg); border-left-color: var(--warn-border); }
+.callout.danger { background: var(--danger-bg); border-left-color: var(--danger-border); }
+.callout.tip    { background: var(--tip-bg); border-left-color: var(--tip-border); }
+.callout .title { font-weight: 600; margin-bottom: 4px; }
+
+/* kv */
+.kv {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 6px 14px;
+  margin: 8px 0 14px;
+  font-size: 14px;
+}
+.kv .k { color: var(--fg-dim); font-weight: 600; }
+
+/* ascii art */
+.ascii {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--code-bg);
+  border: 1px solid var(--border-soft);
+  padding: 12px 14px;
+  border-radius: 6px;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+hr { border: none; border-top: 1px solid var(--border-soft); margin: 24px 0; }
+
+.footer-note {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-mute);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Anchor links on headings */
+h2.theme-title, h3.stage {
+  position: relative;
+}
+h2.theme-title:hover .anchor,
+h3.stage:hover .anchor { opacity: 1; }
+.anchor {
+  position: absolute;
+  left: -18px;
+  top: 0;
+  color: var(--fg-mute);
+  opacity: 0;
+  text-decoration: none;
+  padding: 0 4px;
+  font-weight: 400;
+}
+.anchor:hover { color: var(--link); text-decoration: none; }
+
+/* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .doc { grid-template-columns: 1fr; }
+  .menu-btn { display: block; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: 280px;
+    height: 100vh;
+    z-index: 90;
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .content { padding: 56px 20px 60px; }
+  .doc-title { font-size: 22px; }
+  h2.theme-title { font-size: 20px; }
+  h3.stage { font-size: 16px; }
+}
+
+@media (max-width: 500px) {
+  body { font-size: 14.5px; }
+  .content { padding: 56px 16px 60px; }
+  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv .k { margin-top: 8px; }
+}
+
+/* ===== Print ===== */
+@media print {
+  body { background: white; color: black; font-size: 11pt; line-height: 1.55; }
+  .sidebar, .menu-btn, .tools { display: none !important; }
+  .doc { display: block; }
+  .content { padding: 0; max-width: 100%; }
+  .theme-block { page-break-before: auto; break-before: auto; }
+  .theme-block + .theme-block { border-top: 1px solid #999; page-break-before: always; break-before: page; }
+  h2.theme-title { color: black; page-break-after: avoid; }
+  h3.stage { color: black !important; border-color: #999 !important; page-break-after: avoid; }
+  pre, code { background: #f4f4f4 !important; color: black !important; border: 1px solid #ccc !important; -webkit-print-color-adjust: exact; }
+  pre { white-space: pre-wrap; word-break: break-word; }
+  table, th, td { border-color: #999 !important; color: black !important; }
+  th { background: #eee !important; color: black !important; }
+  .callout { border: 1px solid #999 !important; background: #f8f8f8 !important; color: black !important; }
+  .callout.warn { background: #fffbe6 !important; }
+  blockquote { border-color: #999 !important; background: #f8f8f8 !important; color: #333 !important; }
+  a { color: black; text-decoration: underline; }
+  .anchor { display: none !important; }
+}
+</style>
+</head>
+<body>
+
+<button id="menu-btn" class="menu-btn" aria-label="menu">☰</button>
+<div class="doc">
+  <aside id="sidebar" class="sidebar"></aside>
+  <main id="content" class="content"></main>
+</div>
+
+<script>// ==============================================================
+// Interview Review Guide — content data
+// Structure: THEMES[i] = { id, title, icon, tagline, hero?, stages, sources }
+//   stages = { "what-is": [...], "why-choose": [...], "what-broke": [...], "how-fixed": [...] }
+//   Each section: { kind: "md" | "kv" | "table" | "code" | "ascii" | "callout" | "quote", ... }
+// ==============================================================
+
+window.__GUIDE_META__ = {
+  footerNote: '抽取自 <code>~/Desktop/加油.md</code> / <code>01-业务代理模块技术演进.md</code> / <code>02-NZMesh服务网格与K8s部署.md</code> · 抽取日期 2026-07-02 · 仓库路径 <code>/Users/marcopu/lab/interview/guide/</code>',
+};
+
+window.__GUIDE_THEMES__ = [
+  // =============================================================
+  // 0. INTRO
+  // =============================================================
+  {
+    id: 'intro',
+    title: '个人简介 & 后台通用心法',
+    icon: '👋',
+    tagline: '9 年后台，从互联网到游戏 · Please call me super marco :)',
+    hero: [
+      {
+        kind: 'quote',
+        text: '记住，也许只有一种失败——是不善言辞的表达。',
+      },
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '一句话心法',
+        body: '**分而治之，读写分离。** 读有读的优化，写有写的优化。读加缓存、加备份、冷热分离、动静分离；写加分片、减少锁、加缓冲、削峰限流。最后借鉴 MySQL 的 MVCC、JUC 的 CAS、共享锁、独占锁——**其本质是一样的**。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '两段工作经历',
+          body: '**前 3 年（360）** — 智能硬件后台 · 网络安全 DDOS 攻防。\n' +
+            '- Web 全栈：jQuery → Vue/React、Gulp → WebPack、给 PHP 写扩展\n' +
+            '- CoreDNS / PublicDNS · Erlang 高并发编程 · 内核编译 · 鲲鹏系统信创\n\n' +
+            '**近 6 年（腾讯）**\n' +
+            '- 微视中台（1 年）：EPC 建设 · 流量录制回放 · tRPC-Go Oteam 成员\n' +
+            '- 天美（5 年）：怪物猎人上云 · 星之破晓攻坚 · 宝可梦大集结 · 逆战手游\n' +
+            '- 主要方向：**自研 Mesh · 编译优化 · 商业化系统 · 研效工具 · AI 与游戏后台落地**',
+        },
+        {
+          kind: 'md',
+          title: '开源与团队参与',
+          body: '- PHP 开发组：早期文档翻译\n' +
+            '- 互联网期：**开源 [Meshery](https://meshery.io) 服务网格压测框架成员**\n' +
+            '- 微视期：公司**流量录制回放 Oteam 联席成员**\n' +
+            '- 逆战：**商城/充值/抽奖/VIP 系统负责人**，从 0→1 完成商城与支付、付费测试到上线',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '🌟 高性能：先问场景，再给方案',
+          body: '- 秒杀、配置中心 18w QPS、序列化/反序列化压测；有些操作应下沉到客户端本地\n' +
+            '- Kafka 架构与高性能：Rebalance、消息可靠性、顺序性\n' +
+            '- 定位性能瓶颈的顺序：**观测→采样→分层排除**（网络/磁盘/CPU/锁）\n' +
+            '- **四层 vs 七层负载**：为什么不选 Istio？卡在 Envoy 的 3 倍 socket 与 XDS 全量下发；更适合 HTTP，不支持点对点，跨集群还要 CROSS 模块，路由策略有限',
+        },
+        {
+          kind: 'md',
+          title: '🌟 高可用：故障发生时可控、可隔离、可恢复',
+          body: '- 请求太多？**限时、排队、削峰**\n' +
+            '- 下游变慢？**超时、重试、熔断、隔离**\n' +
+            '- 核心服务挂了？**降级、冗余、故障转移**\n' +
+            '- 重复请求？**幂等、防重、状态机**\n' +
+            '- 上线前预防？**压测、监控、混沌工程、演练、容量评估**',
+        },
+        {
+          kind: 'md',
+          title: '🌟 分布式：为什么必须做取舍',
+          body: '要快就得数据不一致——同步等所有机器变慢；要不停工就得允许延迟。**这就是 CAP。**',
+        },
+        {
+          kind: 'table',
+          title: '分布式概念地图',
+          header: ['概念', '解决什么问题'],
+          rows: [
+            ['**CAP**', '强一致 / 不卡顿 / 不怕断网 · 三选二'],
+            ['**BASE**', '折中方案：允许中间不一致，只要**最终一致**'],
+            ['**Paxos**', '一群随时可能死机的节点，如何达成唯一共识（理论鼻祖）'],
+            ['**Raft**', 'Paxos 简化版：选 Leader、写流水账（工程可实现）'],
+            ['**ZAB**', 'ZooKeeper 专用同步协议（选主+日志复制，同类 Raft）'],
+            ['**Gossip**', '像村头大妈传八卦，一对一互传，最后全网都收到（**超大集群适用**）'],
+            ['**一致性哈希**', '扩缩容时只有极少数据需要搬家，大部队不受影响'],
+          ],
+        },
+        {
+          kind: 'table',
+          title: '微服务四大件的职责',
+          header: ['组件', '职责比喻'],
+          rows: [
+            ['RPC', '**修路的**：让远端服务像本地调用一样'],
+            ['API 网关', '**看门大爷**：鉴权、限流、路由，唯一入口'],
+            ['配置中心', '**全校大广播**：改配置无需重启，广播一喊立即生效'],
+            ['注册中心', '**动态通讯录**：谁开机就登记，谁死机就划掉'],
+          ],
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '游戏后台 vs 互联网后台的本质',
+          body: '关注点根本不同：\n' +
+            '- **单次响应绝对延迟** vs **整站吞吐/并发承载**\n' +
+            '- **游戏选择"单线程无锁"**：人与人、人与怪状态高度交织，加锁代价太大；游戏是计算密集型，单线程无锁循环延迟最低\n' +
+            '- **互联网选择"多线程/协程"**：请求彼此独立（无状态），大量时间在等 DB I/O，多协程异步能压榨吞吐',
+        },
+        {
+          kind: 'table',
+          title: '为什么游戏单线程 / 互联网多线程',
+          header: ['维度', '游戏后台', '互联网后台'],
+          rows: [
+            ['状态耦合', '**强状态、强关联**（AOE、扣血、吸血、眩晕多线程加锁太重）', '**无状态、弱关联**（甲乙买东西无本质关系）'],
+            ['密集类型', '**CPU 计算密集**（20~60Hz Tick，视距/碰撞/伤害/寻路）', '**I/O 密集**（等 MySQL、Redis、第三方 API）'],
+            ['并发模型', '**单线程无锁 + 帧循环**', '**多协程/多线程 + 异步**'],
+            ['数据位置', '几乎全在内存', '主要在数据库/缓存'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'Istio 为什么慢？（不是控制面 Istiod，慢的是每个 Pod 的 Envoy Sidecar）',
+          body: '1. **协议栈"反复横跳"**：Context Switch + 数据拷贝\n' +
+            '2. **沉重的 L7 解析**：认得 HTTP/1.1、HTTP/2、gRPC、Dubbo，能力都是代价\n' +
+            '3. **XDS 全量下发**：500 服务 × 10 Pod = 每个 Envoy 内存维护 5000 实例；扩缩容一波爆炸',
+        },
+        {
+          kind: 'md',
+          title: '分布式常见坑',
+          body: '- **分布式 ID**：雪花算法**时钟回拨坑**——ID 瞬间重复\n' +
+            '- **分布式锁**：**锁提前过期坑**——业务没跑完 Redis 就放锁；需要看门狗续期\n' +
+            '- **分布式事务**：TCC/Saga 写补偿代码 + 幂等；MQ 最终一致性最常用；强一致性能差',
+        },
+        {
+          kind: 'md',
+          title: 'HTTP/1.1 → HTTP/2 → HTTP/3 的线头阻塞演进',
+          body: '- **HTTP/1.1**：一个 TCP 通道内请求串行 → 只能开多 TCP 连接（三次握手 + 慢启动 + 6 连接对 CPU/内存都是压榨）\n' +
+            '- **HTTP/2**：多路复用 + 二进制分帧 + HPACK 头部压缩 + Server Push；一个 TCP 承载全部请求\n' +
+            '- **痛点**：TCP 层线头阻塞——共用滑动窗口，一个包丢，整条流都停摆\n' +
+            '- **HTTP/3**：底层换 QUIC/UDP，每个"流"独立控制，一个流丢包不影响其他流',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '万能公式：概念 → 场景 → 坑 → 填法',
+          body: '**是什么** → **为什么选** → **踩过什么坑** → **怎么填的**\n\n' +
+            '举例（分布式锁）：\n' +
+            '- **是什么**：防止多机同时改同一数据\n' +
+            '- **为什么选**：秒杀库存对比 ZK/Redis，选 Redis（快）\n' +
+            '- **踩过坑**：长事务导致 Redis 锁提前过期，第二个人闯入\n' +
+            '- **怎么填**：紧急引入 Redisson 看门狗，后台自动续期',
+        },
+        {
+          kind: 'md',
+          title: '面试第一分钟：什么该讲，什么该藏',
+          body: '- 讲**主线**：一句话概括每段经历，不背简历\n' +
+            '- 讲**关键项目**：怪物猎人上云 · 星之破晓 · 逆战支付/商城\n' +
+            '- 讲**你解决了什么**：一致性、复用率、跨集群、多通道 CVM\n' +
+            '- 备选深挖点：Mesh 演进 · Redis 版本 · K8s CNI · Agent Loop（对应本站其他 6 个专题）',
+        },
+      ],
+    },
+    sources: ['<code>~/Desktop/加油.md</code>（抽取日期 2026-07-02）'],
+  },
+
+  // =============================================================
+  // 1. BUSINESS-PROXY
+  // =============================================================
+  {
+    id: 'business-proxy',
+    title: '业务代理 · 支付 · 商城',
+    icon: '💳',
+    tagline: 'platpxy / paypxy / mallsvrd 三模块技术演进',
+    hero: [
+      {
+        kind: 'ascii',
+        title: '三模块关系图',
+        body:
+'                客户端\n' +
+'                  │ (拉起支付/拉商城/买东西)\n' +
+'        ┌─────────▼──────────┐\n' +
+'        │      lobbysvrd       │  大厅按命令字分发\n' +
+'        └─────────┬──────────┘\n' +
+'                  │ mesh RPC (protobuf)\n' +
+'        ┌─────────▼──────────┐\n' +
+'        │     mallsvrd         │  商业化"大杂烩"：商城/商店/抽奖/活动/任务/支付编排\n' +
+'        └───┬───────┬─────┬───┘\n' +
+'   RPC      │       │     │ RPC\n' +
+'  ┌─────────▼┐  ┌───▼───┐ └────────────► deposit / bagsvrd（原子扣币+发道具）\n' +
+'  │ paypxy   │  │platpxy│\n' +
+'  │(支付代理) │  │(平台) │\n' +
+'  └────┬─────┘  └───┬───┘\n' +
+'       │HTTP        │HTTP / 原生 TCP / cgo C++SDK\n' +
+'   ┌───▼───┐   ┌────▼─────────────────────────────┐\n' +
+'   │米大师 │   │微信/QQ/WeGame/抖音/腾讯安全/Hope... │\n' +
+'   │Midas  │   │（十几个外部平台）                 │\n' +
+'   └───────┘   └──────────────────────────────────┘',
+      },
+      {
+        kind: 'kv',
+        title: '一句话定位',
+        items: [
+          ['platpxy', '对接公司"各种平台"的**统一出口**，一个平台能力一个文件，横向铺'],
+          ['paypxy', '只对接**米大师计费**，围绕"钱"做重试、幂等、对账'],
+          ['mallsvrd', '商业化业务编排层，自己不碰外部平台，靠 paypxy 收钱、靠 deposit 发货'],
+        ],
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: 'platpxy — 平台代理',
+          body: '统一对接公司内外平台的**代理出口**，同时是 RPC 服务端（收游戏服请求）+ HTTP 服务端（收平台回调）。入口 <code>platpxy/src/main.go:12</code>：<code>ctx.Run(true)</code> 触发 <code>OnInit</code> 注册约 30 个 RPC handler。\n\n' +
+            '**接的平台清单**：TSS 腾讯安全（敏感词/反外挂/票据）、Hope 未成年人保护、WeGame 鉴权、高校/网吧特权、信誉分、微信/QQ 订阅、微信小游戏支付、抖音直播上车、GVoice 语音、企业微信机器人、LLM、AI 对局机器人（RLBot/MetaAI）、COS 上传、投诉/Bug 上报……**十几个**。',
+        },
+        {
+          kind: 'md',
+          title: 'paypxy — 支付代理',
+          body: '**只对接米大师 Midas 计费系统**，RPC + HTTP 双服务。RPC 收游戏侧下单/查询/扣币；HTTP 收米大师**发货回调**。渠道：Q币、微信支付、QQ 钱包、Q卡、iap 苹果内购、微信电商、统一账户、页匠营销发券、游戏内代币。',
+        },
+        {
+          kind: 'md',
+          title: 'mallsvrd — "商业化大杂烩"',
+          body: '入口极简（<code>main.cpp</code>），核心是 <code>MallContext</code>。早已超出"商城"——**商城/商店/抽奖/商业化活动/任务监听/米大师支付编排**都在同一进程，靠 <code>EQueueID</code> 队列分流做隔离。典型的**业务聚合服务**：减少跨服 RPC，代价是单进程巨大（<code>utils.cpp</code> 88KB、<code>utils_activity.cpp</code> 46KB）。',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'platpxy：为什么不做通用 HTTP 代理？',
+          body: '对接平台的复杂度不在"发个 HTTP"，而在下面这一堆：\n\n```\nURL: protocol://IP:PORT/path?parms\nprotocol - http/https\nip:port  - 域名/IP/L5/Polaris → 需二次请求（先服务发现再拼URL）\npath     - 固定/拼接\nparms    - 各种签名计算规则\nDATA     - json/xml 生成复杂度、签名嵌套\n```\n\n- **方案一**（否）：通用 HTTP 代理（gamesvr ⇄ httppxy ⇄ plat）——签名/寻址/数据组装各家不同，扛不下来\n- **方案二**（选中）：**平台代理 platpxy** —— 每个平台的寻址、签名、数据组装各自封装\n\n**扩展方式**：新增能力 = 新建 <code>service_xxx.go</code> + <code>OnInit</code> 加一行 <code>svrcontext.Register(...)</code> + <code>PlatPxySvr</code> 加一段 toml。**一接口一文件**让多人并行不干扰。',
+        },
+        {
+          kind: 'table',
+          title: 'platpxy 三种出向通道',
+          header: ['通道', '用途', '实现要点'],
+          rows: [
+            ['**HTTP (JSON/GET)**', '大部分平台', '命名连接池 <code>http_transport.go:58</code>；11 种 <code>HTTPClientType_*</code> 分池复用'],
+            ['**原生 TCP 私有协议**', 'AI 对局机器人 (RLBot)', '自研 <code>tcppool/</code>；4 字节大端长度头+包体；连接复用时**校验 req_type/seq_id 防串包**'],
+            ['**cgo C++ SDK**', '腾讯安全 TSS', '<code>tsssdk/tss_sdk.go</code> cgo 链接 <code>lib/libgotss_sdk.so</code>（130MB）'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'paypxy：完整支付链路',
+          body: '```\n1. 下单  OnUnifiedBuyGoods → 先写 dbsvrd 订单表 (Ordered)\n         → 组米大师参数+签名+POST → 返 token/url 给客户端\n2. 支付  客户端拿 token 拉起米大师收银台 (代币走 in_game_coin_pay)\n3. 回调  米大师 POST → MidasDeliveryHandle 验签 → **幂等四道闸** → RPC 转 mallsvrd 真正发道具\n4. 对账  OnPlayerPropCheckNtf 货币校对，不一致时下发同步包\n```\n\n**幂等四道闸** (<code>service_http.go:35</code>)：未找到订单 / 已终止订单 / **重复发货 → 返回成功** / 正常。\n\n> "重复发货**返回成功**"是关键——避免米大师以为失败而无限重试（<code>service_http.go:205</code>）。',
+        },
+        {
+          kind: 'md',
+          title: 'paypxy：核心机制',
+          body: '- **寻址（L5 / Polaris）**：<code>"64128513:196608"</code> 就是 Polaris service 名 <code>fmt.Sprintf("%d:%d", L5Mod, L5Cmd)</code>；每次请求后 <code>UpdateServiceCallResult</code> 把成败/延时**回灌北极星**做熔断负载。\n- **米大师签名 <code>ComputeSig</code>**：\n\n```\nHMAC-SHA1( method & urlencode(path) & urlencode(sorted参数),\n           offerKey+"&" ) 再 base64\n```\n\n自定义 <code>UrlEncode</code> 把 <code>~</code>→<code>%7E</code>、<code>+</code>→<code>%20</code>——**签名最易踩坑处**。',
+        },
+        {
+          kind: 'md',
+          title: 'mallsvrd：两套并行的商品体系',
+          body: '- **商店 Shop**（10000–19999）：走 deposit 直接兑换，**无 RMB 链路**；<code>DBPlayerBuyRecords</code>\n- **商城 Mall**（30000–39999）：含 RMB/逆战点/微信小游戏支付、折扣券、赛季 BP、VIP 特权，**业务最重**；<code>DBPlayerBuyRecordsByMall</code>\n\n靠 <code>buy_factory.h</code> 按 <code>shop_id</code> 区段分流到 <code>MallBuy</code>/<code>ShopBuy</code>，走 <code>BuyBase::Buy()</code> 模板方法：<code>PreBuildItem → PreRecords → PreCheck → OnBuy</code>。',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'platpxy 的坑',
+          body: '- **WeGame 硬性 3s 超时**：整套 HTTP 超时压到 3s（<code>http_transport.go:63</code>），**注释写清了原因**\n- **故障时 ERROR 日志反噬**：异常时暴打 ERROR 会把服务彻底压垮\n- **TCP 连接池复用串包**：残留响应错回给别人',
+        },
+        {
+          kind: 'table',
+          title: 'paypxy README 上那串 TODO 背后的坑',
+          header: ['TODO 项', '坑是什么', '代码里怎么填的'],
+          rows: [
+            ['url 解析校验', '拼出来的 URL 可能非法', '下单前先校验 URL'],
+            ['http transport 链接复用', '每次新建连接**打满端口**', '<code>sync.Map</code> 按业务名缓存 <code>MonitoredHttpClient</code>；<code>MaxIdleConns=12000</code>；<code>MaxIdleConnsPerHost=总数/实例数</code>；用 <code>httptrace</code> 统计**复用 vs 新建**验证池子真生效'],
+            ['**重试时再获取一下实例**', '重试反复打**同一台**挂掉的实例', '把 <code>getServiceInstance</code> 放进**重试 for 循环体内部**，每次重试重新向 Polaris 要实例；退避用**指数退避封顶 + 20% 随机抖动**防重试风暴'],
+            ['**监控不要直接上报字符串**', '把可变字符串（错误详情/ID）拼进监控**维度 key**，导致维度爆炸打爆监控系统', '维度名收敛成**固定枚举常量**（<code>metrics.go:11</code>），可变信息只进日志；错误码用 <code>int</code> 映射；<code>Alert</code> 只在初始化失败等致命场景用'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'paypxy 考古级坑',
+          body: '- **metadata 脏数据**：米大师 metadata 偶尔混入非数字字符，<code>ParseMetadata</code> 逐字符只取数字\n- **云游戏 metadata 嵌套 JSON**：手写括号配对解析器 <code>extractFirstJSONObject</code>\n- **签名嵌套（微信小游戏）**：需两层签名（<code>paySig=HMAC-SHA256(uri&body, appKey)</code> + <code>signature=HMAC-SHA256(body, sessionKey)</code>），sessionKey 还要先用 <code>js_code</code> 换。paypxy 组 JSON、**RPC 调 platpxy 算签名**，跨进程协作\n- **补发货策略**：微信 24h 内 15 次、QQ钱包 2h 9 次、Q币Q卡 5 分钟退款、iap 每次拉起补发',
+        },
+        {
+          kind: 'table',
+          title: 'mallsvrd 的坑',
+          header: ['坑', '后果', '填法'],
+          rows: [
+            ['**uint32 下溢少付钱**', '折扣可用次数 <code>max(0u, discount_count - used)</code>，配置缩量后 <code>used>count</code> 下溢成超大值 → 全部按折扣价，**玩家少付钱**', '先判 <code>used >= count ? 0 : count-used</code>'],
+            ['**逆战点直购超时**', '跨 RPC 中断，玩家扣款成功但商品未发', 'PLAN A/B/C 三套演进；最终选 C：**单次 RPC** 让 paypxy 完成下单+扣款；直购超时**不返错给客户端**，靠 5 次重试补偿'],
+            ['**米大师重复发货**', '跨请求丢上下文、重复发道具', '发货前查 <code>received_list</code> 幂等，已收当正常处理不报错；订单优先读 cache，miss 再回查 DB'],
+            ['跨服 RPC 抖动', '赛季 BP/折扣券校验偶发超时', '<code>CheckSeasonBPBuyItem</code> 做 N 次重试循环'],
+          ],
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: 'platpxy 三大填法',
+          body: '- WeGame 3s 超时：**注释写死原因**，避免后人调回默认导致回归\n- 错误日志限流：<code>errLogCnt</code> 限流 ERROR 输出（<code>server.go:37</code>）\n- TCP 连接池串包：**校验 req_type/seq_id + 50ms 探活 <code>isHealthy</code>**（<code>tcp_pool.go:212</code>）',
+        },
+        {
+          kind: 'md',
+          title: 'paypxy：连接复用 & 重试策略',
+          body: '**连接复用哲学**：\n- 用长连接/http2 把 socket 数摁住\n- 分桶 + 全局 12000 上限：控规模、分散热点\n- **90s 空闲回收 + 多层超时兜底**\n- **复用率埋点**：一眼看出是否逼近 socket 上限\n\n**重试白黑名单** <code>shouldRetry</code>：\n- 余额不足 / 账户不存在**不重试**\n- 其余因"米大师错误码未完整收录"，为保稳定**默认重试**（防御性）',
+        },
+        {
+          kind: 'md',
+          title: 'mallsvrd：职责下沉与"薄发货层"演进',
+          body: '代码里留有大量注释的"考古层"，方向都指向：\n\n> **组装/过滤职责从服务端迁到配置 Hub 预构建 + 客户端**，本服趋于"薄发货层"。\n\n- <code>GetMallUnits</code> 直接 <code>CopyFrom</code> 远端**预构建好的列表**\n- 商品条件过滤全注释掉，改为**无差别全量下发**，过滤挪到取商品时点或客户端\n- **组限购**被注释禁用（<code>set_group_id(...)</code> 都注掉）\n- **热路径优化**：<code>FastDatetimeStr2Sec</code> 手写字符串缓存，避免每次购买重复解析',
+        },
+        {
+          kind: 'md',
+          title: '货币扣减：不自己做，走 deposit 原子兑换',
+          body: '统一通过 <code>RPC::Deposit::ExchangeProps</code>：把消费货币放 <code>del_prop_list</code>、商品/赠品放 <code>add_prop_list</code>，**一次兑换原子完成扣减+发货**。逆战点特殊（由 paypxy 扣），在 <code>add_del_prop</code> 里直接 <code>return</code> 跳过。',
+        },
+        {
+          kind: 'md',
+          title: '周期刷新时间对齐（最精巧的一段）',
+          body: '<code>GetPeriodStartSec</code>：日/周/月/季/年都先对齐到配置的**"每日刷新点"**（线上 06:00）。\n- **周**：+7 天回退到周一（处理 <code>localtime</code> 周日=0 vs ISO 周一=1）\n- **季**：<code>tm_mon += 3; tm_mon -= tm_mon%3</code> 对齐季度首月\n- **赛季类周期**：不用时间戳，靠**比对赛季 ID** 判过期',
+        },
+        {
+          kind: 'kv',
+          title: '依赖关系（按 RPC 调用频次）',
+          items: [
+            ['dbsvrd', '**97**（数据）'],
+            ['paypxy', '19（收钱）'],
+            ['deposit / bagsvrd', '19（原子扣币+发货）'],
+            ['lobby', '11'],
+            ['GlobalHook', '8（购买广播给任务/成就）'],
+            ['其他', 'mission / lottery / vip / season / mail / apollo / award'],
+          ],
+        },
+        {
+          kind: 'callout',
+          variant: 'tip',
+          title: '共用技术底座',
+          body: '- **框架**：<code>common/framework/svrcontext</code>（AcoContext 协程）；RPC 走 <code>svrcontext.Register / s.Request / s.Respond</code>，底层是 nzmesh\n- **服务发现**：<code>common/service_discovery</code>（北极星 polaris-go 封装）\n- **监控**：<code>common/observability/gsmv2</code>（GSM）——**数值属性**走 <code>Sum/Avg/Max/SetAttr</code>；**字符串告警**走 <code>Alert</code>；**两者严格分开**',
+        },
+      ],
+    },
+    sources: ['<code>~/Desktop/01-业务代理模块技术演进.md</code>（抽取日期 2026-07-02）'],
+  },
+
+  // =============================================================
+  // 2. NZMESH-K8S
+  // =============================================================
+  {
+    id: 'nzmesh-k8s',
+    title: 'NZMesh 服务网格 × K8s 部署',
+    icon: '🕸️',
+    tagline: '自研服务网格 · 从 Consul 到全连接单跳广播 · 万级节点',
+    hero: [
+      {
+        kind: 'callout',
+        title: '⚠️ 校正清单（面试必带）',
+        body: '1. **Gossip 是设计概念，未落地**：代码是"全连接网格 + 单跳全量广播"。无 W、无感染轮次、无随机邻居、收方不转发。\n' +
+          '2. **节点发现**：nzmesh C 代码只读 <code>host.txt</code>；K8s API / 北极星是 nzmeshpanel(Go) 的外部链路，负责把 IP 写进 host.txt。\n' +
+          '3. **本机通信**：msc 接业务是 **TBus 共享内存 channel**，**不是 UDS**。\n' +
+          '4. **跨 DC "选 2 个中转"**：代码只见"直连优先 (host_cache)"，独立实现未见，**存疑**。',
+        variant: 'warn',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '一台机器一个 mesh，所有 Pod 共享',
+          body: '```\n        NODE（实体机 / CVM / K8s 节点）\n   ┌──────────────────────────────────┐\n   │  Pod-1   Pod-2   ...   Pod-N      │\n   │   └───────┴────┬─────────┘        │\n   │           本机 NZMesh ──► 跨机直连 │\n   └──────────────────────────────────┘\n跨机调用：业务→msc→本机NZMesh→远端NZMesh→远端msc→远端业务\n```\n\n收益：**连接数大幅收敛** · 内存/CPU 省 · 用主机网络**跳出 K8s Overlay**（公司内网即可跨集群组网，规避 K8s 网络组件频繁异常）。',
+        },
+        {
+          kind: 'table',
+          title: '三种部署模型',
+          header: ['模型', '说明', '用在哪'],
+          rows: [
+            ['**DaemonSet（主用）**', '一机一 mesh，所有 Pod 共享', '通用业务'],
+            ['**Service**', '业务连内网 CLB，不在每节点部署 mesh', '战斗服务集群 (DSA 链路单一)'],
+            ['**Sidecar（已弃用）**', '每 Pod 一个 mesh sidecar', '**放弃**：K8s 网络组件频繁异常；多 Pod 互联单实例近 1GB 内存，10 Pod 节点要 10GB'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'Gossip 的真相：概念 vs 代码',
+          body: '**代码里没有任何 gossip/infect 标识符**（grep 命中 0）：\n' +
+            '- 组包 <code>make_mesh_heartbeat_package</code>：只装本机 <code>local_tbus</code> 实例，**不装从别人学到的实例** → 决定不可能是 gossip\n' +
+            '- 广播 <code>nzmesh_heartbeat</code>：遍历 <code>hash_cache</code>（所有连接）逐个发；内部计数就叫 <code>broadcasts++</code>\n' +
+            '- 收包 <code>_nzmesh_heartbeat</code>：对每条实例只 <code>svr_heartbeat</code> 更新本地路由表，循环结束就 return，**无任何 re-broadcast**\n\n> **NZMesh 用 O(N) 连接换 O(1) 收敛跳数**；gossip 是用 O(W) 连接换 O(log N) 跳数——**取舍方向恰好相反**。',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '为什么要自研：早期方案的死法',
+          body: '**TGW + PROXY + TBus 时代**（容器化后直接崩）：\n' +
+            '- **TBus 走共享内存**：容器化后容器间内存隔离，**共享内存通道直接失效**\n' +
+            '- **服务发现纯人工**：K8s 按资源调度，无法预知部署到哪台\n' +
+            '- **PROXY 中心化**：路由要跨 3 跳（业务→TGW→PROXY→TGW→业务）\n' +
+            '- **PROXY 带宽吃紧**：越来越多模块走无状态化，PROXY 处理跟不上',
+        },
+        {
+          kind: 'table',
+          title: '业界方案对比',
+          header: ['维度', 'Istio', 'TBusPP-MESH（公司组件）', 'NZMesh'],
+          rows: [
+            ['有状态服务', '不支持', '路由不完美，需再叠一层 PROXY', '**原生支持**'],
+            ['点对点', '不支持', '跨多节点跳转', '**直连单跳**'],
+            ['性能', '~6000 QPS，3 倍 socket 开销', '单节点 ~6w QPS，跨节点骤降', '**CVM 130% CPU 跑满万兆网卡**'],
+            ['跨集群', '依赖 Overlay', '需开发 CROSS 模块', '**主机网络直连多 K8s 集群**'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: '第一版基于 Consul 的水土不服（用了一年多）',
+          body: '- 实例超 **300** 个就数据重复\n' +
+            '- 100+ 服务要同时 100 个 Watch\n' +
+            '- 单实例 4.5KB 冗余，5000 实例每次变更解析要 **5~8 秒**\n' +
+            '- 节点上限 5000\n' +
+            '- **2021 年 Consul 官方宣布不再对中国区支持**\n\n**第二版根本性需求**：去中心化（不依赖配置中心）· 万级节点 · 自动注册/剔除 · CVM 转发性能挖掘 · 异构混部互通 · 可定制路由。',
+        },
+        {
+          kind: 'md',
+          title: 'calc_connect：单向连接算法（最扎实的亮点）',
+          body: '全互联的代价是连接数——但 TCP 是全双工，**两节点之间只需 1 条链路**，关键是"谁主动连"。\n\n- **朴素方案**"大 IP 连小 IP"：主动/被动连接数极度不均，CPU 倾斜\n- **NZMesh 方案**：**基于 IP 末位 bit 异或的"公认随机值"**——两个数相加奇偶各 50%，异或值双方算出必然一致且 0/1 均匀\n\n```c\n// nzmesh_main.c:149\nint calc_connect(SNZMeshNode *a, SNZMeshNode *b) {\n    if (a->outside_ip == b->outside_ip) return 0;\n    unsigned int bit = (a->outside_ip ^ b->outside_ip) & 0x01000000;\n    return !bit == (a->outside_ip > b->outside_ip) ? 1 : -1;\n}\n```\n\n实测均衡度：**5000 节点下最大连接差仅 0.37%**，单次比较开销可忽略、额外内存 0。',
+        },
+        {
+          kind: 'md',
+          title: 'Reservoir Sampling 推荐 32 个节点',
+          body: 'msc 启动要快速感知附近 mesh。下行心跳 <code>make_msc_heartbeat_package</code> 用**水库抽样**从全网 mesh **等概率抽 32 个**健康节点：\n\n```\n先顺序填满 32；之后 r = rand() % (idx+1)；r < 32 则替换。\n```\n\n**不论集群多大，下行包恒定 32 个、分布均匀。**',
+        },
+        {
+          kind: 'md',
+          title: 'Jump Consistent Hash（取代 Ketama）',
+          body: '<code>_jump_consistent_hash</code>（<code>nzmesh_net.c:529</code>）：Google Jump Hash，64 位 LCG，**O(log n)、0 内存**，分布更均匀。实测"100 桶≈10M/s，1000 桶≈7.2M/s"。\n\n> **成立前提**：实例 ID 用**数字**标识（沿用 TBUSID）。字符串 ID 得建环 + 字符串 hash，性能差——这是 NZMesh 整体的性能基石。',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'CVM 网络虚拟化 40~45% 瓶颈',
+          body: '**CVM（SA2/SA3/S6）网络 IO 仅为实体机 40~45%**，专业团队结论"所有 virtio 方案都有此问题"。单核单线程到顶，转**多核多通道**：\n\n- **方案一**（否）NZMesh 本地多通道转发：业务无感，但**新增 2 次额外中转**\n- **方案二（选）SDK 直连多通道**：业务 SDK 直连多个通道无多余中转；NZMesh 更新时 SDK 自适应动态屏蔽链路；多通道用**一致性 HASH 选链路**保证玩家数据有序、迁移最少\n\n**效果**：**CVM 总 CPU 130% 跑满万兆网卡**。',
+        },
+        {
+          kind: 'md',
+          title: 'msc ↔ mesh 主连接切换太频繁',
+          body: '<code>msc_net.cpp:198</code>："**9 秒才更新一次防止切换太频繁被 mesh 误判不稳定**"——细节到"9 秒"这种拍出来的量。',
+        },
+        {
+          kind: 'md',
+          title: '实例迁移防抖反复',
+          body: '<code>nzmesh_main.c:794</code> 演进痕迹："超时实例是否组包"——<em>@jessonchen 2023.11.23</em> 去掉、<em>2023.12.07</em> 因网页显示异常又恢复，**典型反复**。',
+        },
+        {
+          kind: 'md',
+          title: 'CPU 热点抓取到锅',
+          body: '<code>nzmesh_net.c:369</code> 演进注释：TBus pair 统计因 <code>cmpTBusPair</code>/<code>hash_find</code> 占 **13%/10% CPU** 被注释掉，"优化后 CPU 54%→33%"。',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '心跳机制',
+          body: '| 链路 | 周期 | 备注 |\n' +
+            '| --- | --- | --- |\n' +
+            '| mesh⇄mesh | 5s | 定时器只置 <code>isHeartBeat=TRUE</code>，主循环检测才真发包 |\n' +
+            '| msc⇄mesh | 3s | <code>msc_main.cpp:521</code> |\n' +
+            '| 业务→mesh | TCP 直连 | 标 <code>islocal=TRUE</code> |\n\n**三大加速手段**：\n- **事件驱动立即广播**：状态变更（disable/normal/迁移）直接置 <code>isHeartBeat=TRUE</code>，下轮主循环立即广播不等 5s\n- **合包 StampCache**（<code>nzmesh_main.c:476</code>）：发送不直接 write，取缓冲块挂到连接待发链表，主循环批量刷出——**多个逻辑包合并成少量 syscall**\n- **单线程主循环**：连接检查/定时器/收发/心跳全在一个无锁线程跑完',
+        },
+        {
+          kind: 'table',
+          title: '路由能力（6 类 + 备份 + 就近 + 跨DC）',
+          header: ['路由类型', '实现', '场景'],
+          rows: [
+            ['RANDOM', '<code>_nzmesh_random</code>', '**先就近再 rand**，失败走备份重试'],
+            ['MOD / MOD_BACKUP', '<code>_nzmesh_mod</code>', '取模分片（合并 backup）'],
+            ['MOD_MS', '<code>_nzmesh_mod_ms</code>', '取模 + **主备双发**'],
+            ['MASTER_SLAVE', '<code>_nzmesh_master_slave</code>', '中心化服务'],
+            ['CO_HASH', '<code>_nzmesh_co_hash</code>', '一致性哈希（玩家/房间粘性）'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: '就近路由：解决 CVM 跨机性能',
+          body: '<code>get_nearest_instance_index</code>：只有**本地连接**（<code>islocal</code>）的包才尝试就近，命中本机同 zone/route 的健康实例则直接走本地（按 <code>backup_cnt</code> 概率）。\n\n> CVM 跨节点网络因虚拟化下降，对高流量请求**多部署几个本地 DB 代理**，就近路由让本地优先承接——本地转发基本不受 IO 虚拟化影响。',
+        },
+        {
+          kind: 'md',
+          title: '备份路由 + 跨 DC',
+          body: '- **两级灾备**：<code>STBusRoute</code> 有 <code>backup_route_id</code>（route 全挂切别的 route）和 <code>backup_zone_id</code>（zone 全异常切别的 zone），回包失败时改写 header 重路由\n- **跨 DC**："**直连优先**"已落地——实例记录来源连接 <code>host_cache</code>，转发直接用这条已知连接发\n- **跨外网**（比赛现场）：引入外网 CLB，链路开加解密',
+        },
+        {
+          kind: 'md',
+          title: 'K8s 部署：DaemonSet + hostNetwork',
+          body: '```yaml\nkind: DaemonSet                         # 一机一节点\nspec.template.spec:\n  hostNetwork: true                     # 跳出 Overlay，用宿主机网络\n  hostPID: true                         # preStop killall daemon 需要\n  terminationGracePeriodSeconds: 7200   # 优雅退出窗口 2 小时\n  volumes: [hostPath /data/home/user00,\n            hostPath /data/corefile,\n            emptyDir(Memory) /dev/shm]\n  containers[nzmesh]:\n    ports: 8000/TCP(mesh 主服务), 9912/UDP(tlog), 9906/TCP\n    lifecycle.preStop: exec [killall, daemon]\n    resources: requests{2Gi,1core} limits{4Gi,2core}\n```\n\n**Service 模型是 headless Service**（<code>clusterIP: None</code>）。',
+        },
+        {
+          kind: 'md',
+          title: '业务 Pod 怎么连本机 mesh — hostIP 注入，不是 UDS',
+          body: '业务 Pod → 本机 mesh 靠 **hostNetwork + hostIP 注入**：\n\n1. 业务进程启动参数统一带 <code>--mesh=$host-ip$:8000</code>\n2. <code>$host-ip$</code> 来自 Downward API：所有工作负载注入 <code>HOST_IP <- status.hostIP</code>\n3. NZMesh DaemonSet <code>hostNetwork: true</code>，监听宿主机 <code>0.0.0.0:8000</code>，业务用 <code>HOST_IP:8000</code> **直接命中本机这台 mesh**，流量不走 Overlay',
+        },
+        {
+          kind: 'md',
+          title: '多集群 / 跨 DC 拓扑',
+          body: '- **集群清单**（<code>schedulersvrd/k8s/k8s_cluster/</code>）：<code>nju.yaml</code>=南京、<code>sh.yaml</code>=上海，各一套 apiserver 证书\n- **CLB 接入**（<code>schedulersvrd/k8s/ingress/</code>）：腾讯 BCS 的 <code>networkextension.bkbcs.tencent.com/v1</code> Ingress（**非标准 nginx**）；按运营商拆 CLB：<code>-dx</code>(电信)/<code>-yd</code>(移动)/<code>-wt</code>(联通)/<code>hongkong-bgp</code>/<code>-inner</code>；**<code>isDirectConnect: true</code> CLB 直连 Pod**\n- **DS 战斗集群**：<code>ds/</code> chart 三件套 <code>idcdispatcher</code>/<code>dscenter</code>/<code>dsagent</code>；dsagent 单实例 16Gi/4core 起、limit 可到 128Gi/64core，<code>nodeSelector: node_type=ds</code> + <code>podAntiAffinity</code> 强制**一机一 dsagent**，PortPool 申请固定 UDP 端口给玩家直连',
+        },
+        {
+          kind: 'md',
+          title: 'nzmeshpanel：运维 + 节点发现的真正落点',
+          body: '入口 <code>https://nzsvr.woa.com/nzmesh</code>，Go 进程 + Vue 前端。**它才是"K8s API 拉节点 / 北极星 / host.txt 对账"的实现处**。\n\n**节点发现两条来源 + 交叉对账**：\n- **host.txt**：扫 <code>host.*.txt</code>，构建 IP→文件映射；**同 IP 出现在多个 host.txt 会 GSM 告警**\n- **K8s API**（client-go）：为每个集群建 clientset，<code>Nodes().List()</code> 拉节点、<code>Pods().List()</code> 拼 tbus 地址\n- **对账**（<code>get_nodes.go:311</code>）：在 host.txt 却未组网 / 已组网却不在 host.txt / DS 节点未跑 dsagent，分别告警\n\n**生产保护**：所有写操作受 <code>enable_k8s_op</code> 总闸控制，dev/test=1，**tiyan/live=0（线上禁止 panel 直接操作 Pod）**。',
+        },
+        {
+          kind: 'md',
+          title: '状态机与一致性冲突应对',
+          body: '```\nNORMAL ──disable signal──► DISABLE\n   │                          │\nheartbeat timeout       （组包时跳过，不再扩散）\n   ▼\nTIMEOUT\n```\n\n**冲突应对组合拳**：\n- 缩短不一致窗口（**立即广播 + 快速收敛**）\n- 业务用**一致性 HASH**（扩缩容时少迁移）\n- 关键包**最多 3 次重试**（避免雪崩）\n- **客户端兜底**',
+        },
+        {
+          kind: 'md',
+          title: '新旧两套 K8s 部署（Helm → kdeploy）',
+          body: '- **旧（声明式 Helm）**：<code>tools/docker/old/helm/</code>，按 <code>system / sgame / ds</code> 三 chart，每服务一份手写 <code>templates/*.yaml</code> + 一堆按"环境-地域-集群"命名的 values。**目录名 <code>old/</code> 本身就是"已归档"信号**\n- **新（程序化生成器 kdeploy）**：<code>go_proj/src/tools/k8s/kdeploy/</code>；读精简的 <code>service.*.yaml</code>/<code>system.*.yaml</code> + 3 个基础模板，内存里组装 K8s 资源并下发\n\n> **为什么从 Helm 转 kdeploy**：手写模板"每个 yaml 复制粘贴改名"太脆——旧 Helm <code>nzmesh.yaml:99</code> 的 <code>limits</code> 把 <code>{{</code> 误写成 <code>{ {</code> 渲染不出，<code>dsagent.yaml</code>/<code>lobbysvrd.yaml</code> 同款笔误还误引用了 <code>accountsvrd.memory_limit</code>。程序化生成把差异收敛到几行配置。',
+        },
+      ],
+    },
+    sources: ['<code>~/Desktop/02-NZMesh服务网格与K8s部署.md</code>（抽取日期 2026-07-02）'],
+  },
+
+  // =============================================================
+  // 3. RATE-LIMIT
+  // =============================================================
+  {
+    id: 'rate-limit',
+    title: '限流：互联网 vs 游戏',
+    icon: '🚦',
+    tagline: '两种世界的两种解法 · 无状态 vs 强状态',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '一句话对比',
+        body: '**互联网**：请求彼此独立，用**令牌桶/漏桶 + Redis+Lua** 集群限流控 QPS，超限直接拒或降级；**游戏**：世界状态高度耦合，用 **Tick 内 CD + 分层配额 + 排队机 + 帧摊派** 控节奏，玩家看到的是"排队"而不是 429。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '限流本质：保护系统 + 塑造用户体验',
+          body: '- **保护系统**：防止下游被打爆（DB 连接池、外部 API 配额）\n- **塑造体验**：秒杀、活动开服、直播抢购的公平性与可预期时延',
+        },
+        {
+          kind: 'table',
+          title: '四大经典算法',
+          header: ['算法', '特点', '适用场景'],
+          rows: [
+            ['**计数器**', '固定窗口，简单，**边界毛刺**', '粗粒度接口保护'],
+            ['**滑动窗口**', '把窗口切分为小格子，逐格滚动', '需要平滑的 QPS 统计'],
+            ['**漏桶**', '恒定流出速率，**削峰但不允许突发**', '严格匀速的下游（DB 写、老接口）'],
+            ['**令牌桶**', '恒定填充速率、允许桶容量内的突发', '**最常用**，Sentinel/Guava/Nginx 都用它'],
+          ],
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '互联网侧：分层限流的常见组合',
+          body: '**接入层（网关/Nginx）** → **服务层（框架内）** → **资源层（DB/Cache/外部 API）**\n\n- **Nginx <code>limit_req</code>**：漏桶算法，按 IP/URI 限；配 <code>burst</code> 允许瞬时突发\n- **Nginx <code>limit_conn</code>**：并发连接数限制\n- **API 网关**（Kong/APISIX/Higress/Envoy）：**分布式令牌桶**，Redis 集群同步计数\n- **Sentinel（阿里）**：QPS/线程数、系统自适应、集群限流、热点参数限流、熔断降级一体\n- **Guava RateLimiter**：**单机令牌桶**，简单场景合适，无法跨进程\n- **Resilience4j / Bucket4j**：Java 生态里较轻的替代',
+        },
+        {
+          kind: 'md',
+          title: '分布式限流的两条路',
+          body: '**1. Redis + Lua 原子脚本（主流）**\n\n```lua\n-- KEYS[1] 限流 key, ARGV[1] 令牌桶容量, ARGV[2] 每毫秒填充速率, ARGV[3] 请求令牌数\nlocal now = tonumber(redis.call("time")[1]) * 1000 + math.floor(tonumber(redis.call("time")[2])/1000)\nlocal last = tonumber(redis.call("hget", KEYS[1], "last") or now)\nlocal tokens = tonumber(redis.call("hget", KEYS[1], "tokens") or ARGV[1])\ntokens = math.min(tonumber(ARGV[1]), tokens + (now - last) * tonumber(ARGV[2]))\nif tokens < tonumber(ARGV[3]) then return 0 end\ntokens = tokens - tonumber(ARGV[3])\nredis.call("hmset", KEYS[1], "last", now, "tokens", tokens)\nredis.call("pexpire", KEYS[1], 60000)\nreturn 1\n```\n\n- 优点：一致强、跨语言、和网关/服务/中台通用\n- 坑：**Redis 单点热 key**（一致性哈希打散）；网络 RTT（近端本地令牌桶 + 定期回填 Redis "**批采令牌**"）\n\n**2. 集群限流：中心配额 + 本地精算**\n\n- 中心（Sentinel Token Server / 独立 quota 服务）分发配额\n- 每个节点消费配额，用完向中心申请下一批\n- **Netflix concurrency-limits** / **Google Doorman** 都是这个思路',
+        },
+        {
+          kind: 'md',
+          title: '游戏侧：多层次的"节奏控制"',
+          body: '游戏没有"429"，只有"排队"、"CD"、"进度条"——限流融进玩法里。\n\n- **Tick 内 CD**：技能 CD、聊天冷却、跨服请求 CD——服务端记录 <code>last_use_time</code>，Tick 循环检查\n- **玩家 / 账号 / 服务器 / 大区多层配额**：单玩家上限 + 服务器总量上限 + 大区总量上限，**三层拦截**避免热点账号打爆整台服务器\n- **按帧摊派 (Time-slicing)**：一次要处理 10w 玩家排行榜刷新——**每帧只处理 1000 个**，10 帧摊完；避免单帧卡顿导致游戏 FPS 掉\n- **写队列削峰 + 落地合并**：玩家背包变更先塞队列，异步批量写 DB；同一玩家多次变更**合并为一条**\n- **活动开服的排队机 + 平滑扩容**：玩家进入前先分配令牌（token），登录服控排队；后端根据实时容量下发放行速率；扩容时不是全量放行，而是**按扩容节点数按比例放开**\n- **跨服玩法排队匹配**：MMR 匹配池 + 时间等待惩罚，本质也是限流（分批入场）',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '互联网侧常见坑',
+          body: '- **网关限流粒度过粗**：整个 API 一刀切，误伤高价值用户 → 分**用户等级、租户、渠道**多维度限流\n- **令牌桶补偿机制忘做**：突发场景桶被打空后长期饥饿 → 桶容量 = QPS × N 秒\n- **Redis + Lua 集群模式踩 Slot**：Lua 用多 key 会报错 → **Hash Tag** 强制同 Slot\n- **限流降级链路混乱**：限流后不知道该返 429 还是走降级 → 明确 SLA：快速失败 vs 排队 vs 降级 vs 兜底\n- **压测没打限流**：压测被限流削平，误判系统能扛 → 压测环境关闭或提高阈值',
+        },
+        {
+          kind: 'md',
+          title: '游戏侧常见坑',
+          body: '- **单玩家做 CD 但漏了账号**：脚本用一个账号连开多个客户端绕过 → 加账号级 QPS\n- **Tick 内长任务卡帧**：一次刷排行榜卡 3 帧 → 按帧摊派 + 优先级队列\n- **活动开服炸机**：所有人 0 点冲进来，排队机压垮登录服 → 排队机独立集群 + 令牌预分配 + 客户端本地倒计时错峰\n- **抢购超卖**：并发扣库存没上锁 → Redis Lua 原子扣减 + DB 乐观锁双保险\n- **跨服匹配挤爆**：所有大区打一个匹配池 → 分区匹配 + 分层匹配 (MMR × 时长)',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '组合拳：限流 → 熔断 → 降级 → 兜底',
+          body: '| 阶段 | 触发时机 | 手段 | 用户感知 |\n' +
+            '| --- | --- | --- | --- |\n' +
+            '| **限流** | QPS 超阈值 | 拒绝新请求 | 429 / 排队 |\n' +
+            '| **熔断** | 错误率超阈值 | 直接短路，不打下游 | 快速失败 |\n' +
+            '| **降级** | 依赖不可用 | 走缓存/静态兜底/本地默认值 | 部分能力缺失 |\n' +
+            '| **兜底** | 一切皆炸 | 前端友好提示，避免白屏 | "服务繁忙请稍后" |',
+        },
+        {
+          kind: 'md',
+          title: '核心决策清单',
+          body: '- **哪层拦？** 网关粗粒度 + 服务层细粒度\n- **对谁拦？** 用户/租户/接口/来源 IP/参数值\n- **拦多少？** 从压测容量倒推，留 20~30% buffer\n- **怎么算？** 令牌桶（允许突发）or 漏桶（严格匀速）\n- **超限做什么？** 拒 vs 排队 vs 降级 vs 兜底\n- **可观测？** QPS、拦截率、桶剩余令牌、排队时长——**都要埋点**',
+        },
+        {
+          kind: 'md',
+          title: '两个世界的本质差异',
+          body: '| 维度 | 互联网 | 游戏 |\n' +
+            '| --- | --- | --- |\n' +
+            '| 请求耦合 | 独立无状态 | 世界状态高度耦合 |\n' +
+            '| 密集类型 | I/O 密集 | CPU 计算密集 |\n' +
+            '| 限流单位 | QPS / QPM | Tick / 帧 / 玩家配额 |\n' +
+            '| 超限反馈 | 429 / 降级 | 排队 / CD / 进度条 |\n' +
+            '| 分布式协调 | Redis+Lua / 中心配额 | 单服权威 + 分层配额 |\n' +
+            '| 可观测重点 | 拦截率、延时、错误码分布 | 帧时长、队列长度、CD 命中率 |',
+        },
+      ],
+    },
+    sources: ['综合整理：Sentinel、Nginx、腾讯游戏后台经验，具体实现请以官方文档为准（2026-07）'],
+  },
+
+  // =============================================================
+  // 4. REDIS
+  // =============================================================
+  {
+    id: 'redis',
+    title: 'Redis 版本演进 & 分布式',
+    icon: '🟥',
+    tagline: '3.x → 8.x · 分布式锁 · Cluster · 缓存三板斧',
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '版本演进时间线（面试常问的每一版关键变化）',
+          body: '',
+        },
+        {
+          kind: 'table',
+          title: 'Redis 3.x → 8.x',
+          header: ['版本', '时间', '关键新特性', '破坏性/注意点'],
+          rows: [
+            ['**3.0**', '2015', '**Redis Cluster GA**（16384 slot、gossip 元数据）', 'multi-key 事务受限（同 Slot）'],
+            ['**3.2**', '2016', '**GEO** 地理坐标、**BITFIELD**、**SDS 优化**', ''],
+            ['**4.0**', '2017', '**Module 系统**、**PSYNC2**（部分同步升级）、**LFU**、**内存碎片整理 activedefrag**、**Lazy free**（异步删除大 key）', 'RDB-AOF 混合持久化默认关，需开启'],
+            ['**5.0**', '2018', '**Stream**（真正的消息队列，替代 List/Pub-Sub 的很多场景）、**RDB-AOF 混合持久化默认开启**、**Sorted Set 新增 ZPOPMIN/ZPOPMAX**、**LOLWUT**', ''],
+            ['**6.0**', '2020', '**多线程 IO**（读写 socket 多线程、命令执行仍单线程）、**ACL** 用户权限、**RESP3** 协议、**Client-Side Caching**、**SSL/TLS 内建**', 'ACL 默认 <code>default</code> 用户无密码，需显式配置'],
+            ['**6.2**', '2021', '**COPY / RESET / SMISMEMBER**、大量小改进、**geosearch** 优化', ''],
+            ['**7.0**', '2022', '**Function**（替代/增强 Lua Script）、**Sharded Pub/Sub**（Cluster 下 pub/sub 不再全网广播）、**AOF Multi-Part**（多文件切分）、**Client-eviction**、**ACL v2 键级权限**', ''],
+            ['**7.2**', '2023', '**RESP3 完善**、**新数据类型 hyperloglog 改进**、**Auto-Failover 更快**', ''],
+            ['**7.4**', '2024', '**Hash Field TTL**（Hash 内字段级过期）、**加速持久化**、Cluster 更高扩展性', ''],
+            ['**8.0**', '2025', '**吞吐大幅提升**（IO 与命令执行进一步并行）、**JSON / Time Series / Bloom / Search 内建**（原 Modules 合并进核心）、**7 项新数据结构**、**去除 Redis Stack 拆分**', '许可证变化：**RSALv2 + SSPLv1**（BSD 时代结束）'],
+          ],
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '为什么 Redis 是分布式议题的常客',
+          body: '- **单线程命令模型** → 天然的原子性，是分布式锁/计数器/幂等的最佳场地\n- **持久化 + 主从 + Cluster** → 一套体系解决"存不丢、读扩展、写分片"\n- **数据结构丰富** → String/Hash/List/Set/ZSet/Stream/Bitmap/HyperLogLog/Geo\n- **性能** → 单节点 10w+ QPS 起步；6.0 多线程后网络吞吐再翻倍',
+        },
+        {
+          kind: 'md',
+          title: '分布式锁：SETNX → Lua 释放 → Redlock → 看门狗',
+          body: '**基础版（正确姿势）**：\n\n```\nSET lock:key uuid NX PX 30000       -- 原子的"存在则不设"+过期\n-- 释放时用 Lua 校验 uuid 再删，避免释放别人的锁\nif redis.call("get", KEYS[1]) == ARGV[1] then\n  return redis.call("del", KEYS[1])\nelse return 0 end\n```\n\n**Redlock（Antirez 提出，Kleppmann 反对）**：\n- 向 5 个独立主节点发 SET NX PX；获取到 **N/2+1** 视为成功；关键是**时钟不能回拨、请求耗时 < 锁 TTL**\n- Kleppmann 论文批评：任何依赖 fencing token 都比 Redlock 更安全\n- 结论：**普通业务用单主 + 看门狗足够**，强一致选 ZK/etcd\n\n**看门狗（Redisson）**：\n- 客户端后台线程每 <code>lockLeaseTime/3</code> 续期一次\n- 业务未完成锁不会被 Redis 强制过期\n- **故障切换时锁可能丢**——业务需幂等兜底',
+        },
+        {
+          kind: 'md',
+          title: 'Cluster：Slot / gossip / 多 key 事务',
+          body: '- **16384 slot**（<code>CRC16(key) mod 16384</code>），每个主节点持有一段 slot 范围\n- **gossip 元数据**：节点间通过 <code>ping/pong</code> 交换 slot 归属、故障状态；心跳周期 <code>cluster-node-timeout</code>（默认 15s）\n- **多 key 命令必须同 Slot**：<code>MSET</code>/<code>MGET</code>/<code>SUNION</code>/事务/Lua 都受限\n- **Hash Tag**：<code>{userid:1000}:profile</code>、<code>{userid:1000}:orders</code> 强制同 slot\n- **重定向**：<code>MOVED</code>（永久归属变化）vs <code>ASK</code>（迁移中一次性重定向）\n- **Slot 迁移**：<code>MIGRATE</code> 命令 + <code>CLUSTER SETSLOT IMPORTING/MIGRATING</code>；单 key 拆分数据源和目的端两边打标',
+        },
+        {
+          kind: 'md',
+          title: '主从复制：**异步**的代价',
+          body: '- **PSYNC**：全量 RDB + 部分同步（backlog buffer）；<code>replid</code>+<code>offset</code> 双坐标\n- **异步复制** → 主故障时 slave 未追上的数据**丢失**（"最后 N 秒"）\n- **min-replicas-to-write / min-replicas-max-lag** 保底：写要求至少 K 个 slave 落后不超过 N 秒；否则拒写\n- **Sentinel** 或 **Cluster** 做故障转移；哨兵至少 3 台奇数以避免脑裂投票',
+        },
+        {
+          kind: 'md',
+          title: '缓存三板斧',
+          body: '- **穿透**（查一个 DB 都没有的 key）：**布隆过滤器**前置 + **空值缓存 5 分钟**\n- **击穿**（热点 key 恰好过期，大量请求打 DB）：**互斥重建**（<code>SETNX</code> 争用重建权）+ **逻辑过期**（永不物理过期，异步刷新）\n- **雪崩**（同时大量 key 过期）：**随机 TTL**（±10%）+ 多级缓存 + 熔断降级',
+        },
+        {
+          kind: 'md',
+          title: '缓存与 DB 一致性',
+          body: '- **Cache-aside**：读 miss → 查 DB → 回填缓存；写 → 先写 DB → 删缓存（**推荐**）\n- **Write-through**：写请求同时更新缓存与 DB（一致性好，写路径重）\n- **Write-behind (Write-back)**：写只更缓存，异步刷 DB（性能极高，**丢数据风险**）\n- **双写不一致三大坑**：\n  1. 更新 DB 后删缓存前的读命中旧值 → **延时双删**（先删 → 更新 DB → sleep → 再删）\n  2. 主从延迟导致读到旧数据 → 关键读走主库\n  3. **binlog 订阅（Canal / Debezium）**异步失效缓存，最终一致',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '经典生产事故清单',
+          body: '- **大 key 阻塞**：单 key 500MB，删除耗时 3s，导致集群心跳超时被误判下线 → **拆分 + <code>UNLINK</code> 异步删除**\n- **热 key 打爆单实例**：明星八卦 key 全流量打到一个 slot → **本地 EhCache 一层 + 客户端预取 + 打散 sub-key**\n- **Cluster 脑裂**：网络分区期间少数派仍在写 → **min-replicas + 客户端读多数派**\n- **看门狗续期死锁**：业务代码 <code>Thread.sleep</code> 而后台守护线程被卡 → 用异步续期或独立线程池\n- **Lua 慢脚本**：单 Lua 阻塞主线程 200ms，全服卡 → <code>lua-time-limit</code> + 拆分脚本',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '选型清单（面试可背）',
+          body: '- **需要强一致锁** → ZK / etcd（不选 Redis）\n- **需要"够用就行"锁** → Redis 单主 + Redisson 看门狗\n- **需要秒杀库存扣减** → **Lua 原子脚本** + DB 乐观锁双保险\n- **需要延时任务** → **Redis Stream + Consumer Group** 或 <code>ZSET</code> + 定时轮询\n- **需要消息队列** → 5.x 起用 **Stream**，别再用 List/Pub-Sub\n- **需要跨 slot 多 key** → **Hash Tag** 收敛\n- **需要跨机房低延迟** → **就近读 + 异地异步复制**（最终一致）\n- **需要 3.x → 8.x 升级** → 灰度切流 + 主从并行 + <code>MIGRATE</code> 分批 + **回滚预案**',
+        },
+        {
+          kind: 'md',
+          title: '性能与容量心法',
+          body: '- **单实例经验值**：10w QPS（简单命令）；6.0 多线程后网络吞吐 2x\n- **持久化**：AOF <code>everysec</code> 是性价比最优；RDB 用于备份；混合持久化默认开\n- **过期策略**：**惰性删除 + 定期抽样删除**；批量过期靠**随机 TTL**避免同时爆炸\n- **淘汰策略**：<code>allkeys-lru</code>（缓存场景）、<code>volatile-ttl</code>（有明确 TTL 数据）、<code>allkeys-lfu</code>（热点稳定）\n- **内存优化**：<code>ziplist</code>/<code>listpack</code> 阈值调优；小 hash/小 list 会自动压缩',
+        },
+      ],
+    },
+    sources: ['综合整理：Redis 官方 release notes、Antirez 博客、redis.io/docs（2026-07；请以官方文档为准）'],
+  },
+
+  // =============================================================
+  // 5. K8S-NETWORK
+  // =============================================================
+  {
+    id: 'k8s-network',
+    title: 'K8s 异构 & 网络插件',
+    icon: '🌐',
+    tagline: '异构混部 · CNI 三大流派 · 从 Overlay 到 hostNetwork',
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '异构混部：一群"不一样"的机器混在一起',
+          body: '- **CPU 异构**：x86 (Intel/AMD) + ARM (鲲鹏/飞腾/Graviton) + 国产化（龙芯/申威）\n- **加速器异构**：GPU (A100/H100/T4) + NPU (Ascend) + FPGA + DPU\n- **调度目标**：让 Pod 落到匹配的节点，避免 x86 镜像跑到 ARM 节点上崩\n- **典型场景**：训练用 GPU 节点池，推理用 CPU 节点池，前端 Web 用普通节点池；游戏 DS 战斗集群一机一 Pod（本项目就是）',
+        },
+        {
+          kind: 'md',
+          title: '异构调度的四把刀',
+          body: '- **Node Label**：<code>kubectl label node n1 node_type=ds arch=arm64 gpu=a100</code>\n- **NodeSelector**：Pod 声明 <code>nodeSelector: {node_type: ds}</code>——**硬约束**\n- **Taint / Toleration**：节点打 taint <code>gpu=true:NoSchedule</code>，Pod 显式容忍才能调度上——防止普通 Pod 抢 GPU 节点\n- **Affinity / AntiAffinity**：\n  - <code>nodeAffinity</code>：软/硬亲和 (更强表达力)\n  - <code>podAntiAffinity</code>：DS 战斗进程用 <code>topologyKey: kubernetes.io/hostname</code> 强制**一机一 Pod**\n- **多 Runtime**：<code>containerd</code>（默认）+ <code>kata-containers</code>（虚拟化隔离）+ <code>runc</code>；通过 <code>RuntimeClass</code> 让 Pod 选运行时',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'K8s 网络四大原则',
+          body: '1. 每个 Pod 都有**独立 IP**（Pod IP 平面）\n2. Pod 与 Pod 之间**直接互通**，无需 NAT\n3. 节点上的 Agent（kubelet/kube-proxy）能与本节点所有 Pod 通信\n4. Pod 看到的自己 IP == 别的 Pod 看到的它的 IP（**IP 一致性**）',
+        },
+        {
+          kind: 'table',
+          title: 'CNI 三大流派原理对比',
+          header: ['插件', '数据面原理', '控制面', '优点', '缺点'],
+          rows: [
+            ['**Flannel (VXLAN)**', 'Overlay：Pod 报文封装成 UDP，节点间走 VXLAN 隧道 (VNI)', '简单，etcd 存 subnet 划分', '**极简**，装完就能跑；跨节点无需路由配合', '**双封装**性能损耗 ~10-15%；不支持 NetworkPolicy'],
+            ['**Calico (BGP)**', 'BGP 直路：节点间用 BGP 广告 Pod CIDR，走宿主机路由表**不封装**', 'BGP RR (Route Reflector) + Felix Agent', '**性能接近裸金属**；支持 NetworkPolicy；跨机房友好', '需要网络设备支持 BGP 或用 IPIP 模式回退'],
+            ['**Calico (IPIP)**', '轻量隧道：IP-in-IP 单封装', '同上', 'BGP 不通时的兜底', '仍有一层封装'],
+            ['**Cilium (eBPF)**', '**内核 eBPF 数据面**：绕过 iptables/kube-proxy，直接在 socket/tc 层转发', '基于 eBPF map，控制面 daemon', '**性能最强、可观测最强**；L7 策略、mTLS 都能做', '内核版本要求 (≥4.19 强推荐≥5.10)；学习曲线陡'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'Service / kube-proxy 的三种模式',
+          body: '- **userspace（远古）**：kube-proxy 自己转发，慢，已废弃\n- **iptables（默认）**：为每个 Service 生成 iptables 规则；**规则数 O(N)**，服务 5000+ 时 iptables 规则匹配 O(N) 变慢，容易触发内核卡顿\n- **ipvs（推荐大集群）**：内核态 hash 表，**O(1) 查找**；支持更多算法 (rr/lc/dh/sh)；同时支持 SNAT/DNAT\n- **eBPF (Cilium kube-proxy replacement)**：**完全绕过 kube-proxy**，Service 转发做进 eBPF map；集群 5000+ Service 时优势明显',
+        },
+        {
+          kind: 'md',
+          title: 'Ingress vs Gateway API',
+          body: '- **Ingress**：K8s 早期方案，抽象度低（只 host/path），能力靠 <code>annotations</code> 各家自定义 → **不可移植**\n- **Gateway API**（新一代）：三层资源模型 <code>GatewayClass</code> / <code>Gateway</code> / <code>HTTPRoute|TCPRoute|GRPCRoute</code>，**类型安全、跨实现可移植**\n- 生产落地：Nginx-Ingress、APISIX、Envoy Gateway、Cilium Gateway、腾讯 BCS 直连 Ingress（<code>networkextension.bkbcs.tencent.com</code>）',
+        },
+        {
+          kind: 'md',
+          title: 'Service Mesh：数据面演进',
+          body: '- **Sidecar (Istio + Envoy)**：每 Pod 一个 Envoy——**协议栈反复横跳** + **XDS 全量下发**（500 服务 × 10 Pod = 每 Envoy 5000 实例）\n- **Node-level (Cilium Service Mesh / Ambient Istio)**：一节点一代理，**去 Sidecar**，共享数据面\n- **eBPF 干掉反复横跳**：Cilium eBPF 数据面**内核态直连**，绕过用户态 socket 拷贝',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '生产踩坑清单',
+          body: '- **VXLAN 上 MTU 未减 50 字节**：包分片导致跨节点 gRPC 超时 → 显式设置 <code>mtu: 1450</code>\n- **iptables 规则过万导致 kube-proxy sync 分钟级**：Service 5000+ → 切 ipvs 或 eBPF\n- **NodeLocal DNSCache 未启**：CoreDNS 打爆 → 每节点部署 DNSCache Pod\n- **CNI IP 池耗尽**：Pod 疯狂重启回收 IP 慢 → 加大子网 / 用 Calico IPPool 分层\n- **NetworkPolicy 与 Ingress Controller 冲突**：Ingress 拦截被 NetworkPolicy 阻掉 → **命名空间级白名单** + 显式放行 <code>ingress-nginx</code>\n- **Cilium 升级踩内核 bug**：eBPF map 冲突 → 升前灰度节点，滚动升级',
+        },
+        {
+          kind: 'md',
+          title: 'Overlay 依赖 vs 主机网络直连（本项目实战对比）',
+          body: '**Overlay 依赖（业界主流）**：\n- 跨集群靠 Submariner / Skupper / KubeVirt-CNI 之类构建二层\n- 好处是抽象干净；坏处是**多一层封装 + 依赖 K8s 网络组件稳定性**\n\n**主机网络直连（NZMesh 采用）**：\n- <code>hostNetwork: true</code> 的 DaemonSet；跨集群走公司内网直接连宿主机 IP\n- **规避 K8s 网络组件频繁异常**（Sidecar 时代真实痛点）\n- 缺点：占用宿主机端口；调度需要 <code>hostPort</code> 冲突检测',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '异构落地清单',
+          body: '- 每类节点打 label（<code>arch=</code>, <code>gpu=</code>, <code>node_type=</code>）\n- 每个工作负载**明确 nodeSelector/Affinity**，别赖默认调度器\n- 关键机器加 taint 防止普通 Pod 抢占\n- 多架构镜像用 **Docker Manifest / <code>docker buildx</code>** 构建 arm64+amd64 双平台，Pull 时自动匹配\n- 通过 <code>topologySpreadConstraints</code> 打散跨可用区/机架',
+        },
+        {
+          kind: 'md',
+          title: 'CNI 选型决策',
+          body: '- **中小集群、快速起步** → Flannel VXLAN\n- **需要 NetworkPolicy、跨机房** → Calico BGP（BGP 通）或 IPIP（BGP 不通）\n- **大集群、性能极致、L7 策略** → Cilium (eBPF)\n- **游戏后台、跨集群直连需求** → **hostNetwork DaemonSet**（本项目）+ 一层业务级 Mesh 做路由',
+        },
+        {
+          kind: 'md',
+          title: 'Sidecar 精简与 XDS 下发爆炸的应对',
+          body: '- **Sidecar CR** 声明依赖：只下发本 Pod 真正调用的服务，**避免全量**\n- **命名空间级隔离**：<code>Sidecar.workloadSelector</code> + <code>egress.hosts</code>\n- **eBPF Cilium**：完全去 Sidecar，控制面成本降到近零\n- **DPU 卸载**：把 Envoy 或 eBPF 数据面卸载到 SmartNIC/DPU（未来趋势）',
+        },
+        {
+          kind: 'md',
+          title: '本项目具体落地',
+          body: '- <code>hostNetwork: true</code> DaemonSet，宿主机 <code>0.0.0.0:8000</code>\n- 业务 Pod 通过 Downward API 注入 <code>HOST_IP</code>，参数 <code>--mesh=$HOST_IP:8000</code>\n- 跨集群：南京 / 上海各一份 kubeconfig，nzmeshpanel 读多集群 <code>Nodes().List()</code> 组网\n- 接入层：BCS 直连 CLB（<code>isDirectConnect: true</code>），按运营商 <code>-dx/-yd/-wt</code> 拆 CLB',
+        },
+      ],
+    },
+    sources: ['综合整理：CNCF/K8s 官方文档、Cilium/Calico blogs、本项目 <code>02-NZMesh服务网格与K8s部署.md</code>（2026-07）'],
+  },
+
+  // =============================================================
+  // 6. AGENT-DEV
+  // =============================================================
+  {
+    id: 'agent-dev',
+    title: 'Agent 开发',
+    icon: '🤖',
+    tagline: 'Agent Loop · 上下文管理 · 工具调用 · AI 巡检落地',
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: 'Agent 的最小闭环：Perception → Plan → Act → Reflect',
+          body: '```\n         ┌────────────────────────────┐\n         │  Prompt / Task / Context   │\n         └──────────────┬─────────────┘\n                        │\n              ┌─────────▼─────────┐\n              │   Reasoner (LLM)  │\n              └─────┬───────┬─────┘\n            plan?  │       │  need info?\n              ┌────▼─┐   ┌─▼──────┐\n              │ Act  │   │ Query  │\n              │ Tool │   │ Memory │\n              └───┬──┘   └───┬────┘\n                  │          │\n              ┌───▼──────────▼───┐\n              │   Observation    │\n              └─────────┬────────┘\n                        │\n              ┌─────────▼─────────┐\n              │   Reflect / Loop  │\n              └───────────────────┘\n```',
+        },
+        {
+          kind: 'table',
+          title: '主流 Agent 架构范式',
+          header: ['范式', '思路', '代表'],
+          rows: [
+            ['**ReAct**', 'Thought → Action → Observation 循环，模型自主决定下一步', 'LangChain / 多数原型'],
+            ['**Plan-and-Execute**', '先出完整计划再逐步执行，中途可 replan', 'BabyAGI / MetaGPT / Devin'],
+            ['**Reflexion / Self-Correction**', '每步执行完让模型自评，失败则修正', 'Reflexion 论文'],
+            ['**ToT (Tree-of-Thought)**', '并行多分支推理，最终打分选优', 'Reasoning-heavy 任务'],
+            ['**Multi-Agent 协作**', '角色分工（Planner / Coder / Critic），消息互传', 'AutoGen / CrewAI / MetaGPT'],
+          ],
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'Tool Use / Function Calling',
+          body: '**协议本质**：LLM 输出结构化 JSON 声明"我要调用哪个工具、参数是什么"，Runtime 执行、把结果作为 <code>tool_result</code> 塞回上下文，模型继续推理。\n\n- **OpenAI**: <code>tool_calls</code>（曾用 <code>function_call</code>）\n- **Anthropic**: <code>tool_use</code> / <code>tool_result</code> 内容块\n- **Gemini**: <code>function_calls</code>\n- **MCP (Model Context Protocol)**: **跨模型统一的工具协议**，2024 起大厂共建\n\n**关键设计**：\n- 工具**幂等**（同参多次调用结果相同）\n- 工具**参数校验 + 错误消息友好**（模型能读懂错误自我修正）\n- 工具**返回大小截断**（避免打爆 context）\n- 工具**副作用可回滚**（危险操作前二次确认）',
+        },
+        {
+          kind: 'md',
+          title: '上下文窗口管理：滑动窗口 + 语义压缩',
+          body: '**问题**：一个复杂任务的对话历史 + 工具输出，很快就撑爆 200k context。\n\n**四种主流做法**（可组合使用）：\n\n1. **朴素滑动窗口**：只保留最近 N 轮 → 简单，但**丢关键事实**\n2. **摘要压缩 (Summary)**：把旧对话周期性压成摘要塞回 system prompt → 关键但**对细节不友好**\n3. **语义分层 (Hierarchical Memory)**：\n   - **短期记忆**：最近 N 轮原文\n   - **中期记忆**：本任务的摘要 + 关键事实（KV 抽取）\n   - **长期记忆**：向量库（历史相似任务）\n4. **工具输出截断 + 惰性回读**：工具结果先只返摘要 + 存全文到磁盘，模型需要时再 <code>read_full(id)</code>\n\n**关键事实抽取（AI 巡检系统落地经验）**：\n- 每 K 步做一次"pinning"——让模型自己列出**必须记住的关键事实**\n- 关键事实以 <code>key: value</code> 格式压入 system prompt\n- 滑动窗口只对"过程日志"生效，不动关键事实',
+        },
+        {
+          kind: 'md',
+          title: 'Prompt Engineering 的核心杠杆',
+          body: '- **System prompt** 定角色、能力边界、输出格式\n- **Few-shot** 只给 3~5 个高质量示例，覆盖典型/边界/失败三类\n- **CoT (Chain-of-Thought)**：思考链，先想再答\n- **Self-consistency**：多次采样投票\n- **Structured output**：JSON Schema / XML tag 强约束\n- **XML 分块** (Anthropic 推荐)：<code>&lt;task&gt;</code>、<code>&lt;context&gt;</code>、<code>&lt;examples&gt;</code>——模型解析更稳',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'Agent 系统的十大真实坑',
+          body: '1. **无限循环**：模型反复调用同一工具、参数不变 → **同调用去重 + 最大轮数熔断 + 检测参数变化**\n2. **工具输出爆炸**：一次 <code>ls</code> 输出 100MB 文件列表 → 分页 + 摘要 + <code>head/tail</code> 保护\n3. **参数幻觉**：模型编造参数名 → JSON Schema 强校验 + 出错时把 schema 塞回 error message\n4. **上下文中毒**：早期错误结论一直污染后续推理 → **checkpoint + 重开新窗口**\n5. **多 Agent 协作死锁**：A 等 B、B 等 A → 强制超时 + 指定 Coordinator\n6. **副作用不可控**：Agent 直接 <code>rm -rf</code> → **敏感工具白名单**、危险命令 human-in-the-loop\n7. **成本失控**：一个任务打 200 次 API → **token 预算限制** + 提前熔断\n8. **latency 过高**：每步 2s，10 步 20s → 工具**本地并行**、**流式输出**\n9. **评测失效**：只在 demo 上跑通 → **Golden set 回归 + 红队测试 + 影子流量**\n10. **可观测缺失**：出问题不知道哪一步 → **Trace ID + 每步 span** (OpenTelemetry / LangSmith)',
+        },
+        {
+          kind: 'md',
+          title: '上下文压缩的边界事故',
+          body: '- **摘要漂移**：多轮摘要后，关键约束（"用 Python 3.10"）在压缩过程丢失\n- **滑动窗口误删指令**：user 早期给的"必须遵守 XX"被踢出去后模型开始违反\n- **向量检索误召**：语义相近但事实相反的历史被错误召回，模型采用了',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: 'AI 巡检系统的滑动窗口设计（自研经验）',
+          body: '**场景**：巡检系统持续观察线上服务的日志 / 指标 / 告警，用 Agent 判断是否需要人工介入。\n\n**设计要点**：\n- **窗口分层**：\n  - Layer-1（10 分钟）：原始告警 & 核心指标，全量入 prompt\n  - Layer-2（1 小时）：LLM 摘要 + 关键事实（服务名、错误码、责任团队）\n  - Layer-3（1 天）：向量化历史事件用于相似性回溯\n- **语义分析压缩**：每 5 分钟触发一次压缩——`summarize + extract_facts`；产出 <code>{time, service, symptom, root_cause_hypothesis, action}</code>\n- **失效恢复**：Agent 每步都要写 <code>current_focus</code> 到独立 memory；崩溃后 replay 用 <code>current_focus</code> + <code>Layer-2 摘要</code> 快速恢复\n- **护栏**：涉及重启/回滚的动作**必须走审批工具**，不能自行执行',
+        },
+        {
+          kind: 'md',
+          title: '失败恢复三板斧',
+          body: '- **重试**：工具超时/网络抖动，指数退避 + jitter\n- **幂等**：所有写操作用 <code>idempotency_key</code>；即使模型重试也不重复扣款/发货\n- **护栏 (Guardrails)**：白名单工具集、参数域约束、危险操作 human-in-the-loop、tokens/时长/费用三重预算',
+        },
+        {
+          kind: 'md',
+          title: 'Agent 的评测方法',
+          body: '- **Golden Set**（黄金集）：人工构造 100~500 个典型任务，跑回归、看**成功率、步数、成本**\n- **红队测试**：对抗性 prompt / 恶意输入 / 边界数据；检查是否越权、是否 leak 敏感信息\n- **离线回放**：录制真实用户轨迹，改 prompt/模型后**回放对比**\n- **A/B 影子流量**：新 Agent 与旧 Agent 并跑，只对比不生效',
+        },
+        {
+          kind: 'table',
+          title: '主流 Agent 框架对比',
+          header: ['框架', '语言', '定位', '亮点'],
+          rows: [
+            ['**LangChain / LangGraph**', 'Python/JS', '通用，State Machine 化 (LangGraph)', '生态最大，模型/工具/存储齐全；LangGraph 引入图编排更适合生产'],
+            ['**AutoGen (MSFT)**', 'Python', 'Multi-Agent 对话', 'GroupChat 抽象、ConversationalAgent'],
+            ['**CrewAI**', 'Python', 'Role-based Multi-Agent', '角色/任务/协作模型清晰'],
+            ['**Anthropic Claude Agent SDK**', 'Python/TS', 'Anthropic 官方，围绕 Claude 优化', '内建工具循环、缓存、思考模式；配合 MCP 生态'],
+            ['**Anthropic MCP**', '协议', '工具/资源统一协议', '让不同模型都能接同一批工具'],
+            ['**Vercel AI SDK**', 'TS', '前后端统一，UI 流式', 'streaming UI + tool calling 一等公民'],
+            ['**LlamaIndex**', 'Python', '重 RAG', 'Retrieval / index 抽象强'],
+            ['**Semantic Kernel (MSFT)**', 'C#/Py/Java', '企业集成', 'Plugin + Planner + Kernel'],
+          ],
+        },
+        {
+          kind: 'callout',
+          variant: 'tip',
+          title: '心法总结',
+          body: '**Agent = Prompt + Tools + Memory + Loop + Guardrails + Evaluation。** 缺任何一样都会在生产坏掉——Demo 跑通只是 20% 的工作，剩下 80% 是评测和护栏。',
+        },
+      ],
+    },
+    sources: ['综合整理：Anthropic / OpenAI / LangChain 官方文档、AI 巡检自研经验（2026-07；生态更新快，请以官方文档为准）'],
+  },
+
+  // =============================================================
+  // 7. CONCURRENCY (进程 / 线程 / 协程)
+  // =============================================================
+  {
+    id: 'concurrency',
+    title: '并发模型 · 进程 / 线程 / 协程',
+    icon: '🧵',
+    tagline: '多进程 vs 多线程 vs 协程 · 调度器与内存模型 · 上下文切换成本',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '一句话对比',
+        body: '**进程**：资源隔离最强、切换最贵；**线程**：共享地址空间、切换适中、最容易死锁数据竞争；**协程**：用户态调度、极轻量、天生适合 I/O 密集，需要运行时/语言支持。选型公式：**CPU 密集用进程/线程池 + Pin CPU；I/O 密集用协程；游戏用单线程无锁 + 帧循环**。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'table',
+          title: '三种并发单位对照表',
+          header: ['维度', '进程 (Process)', '线程 (Thread)', '协程 (Coroutine)'],
+          rows: [
+            ['**地址空间**', '独立 (fork/CoW)', '同进程内共享', '同线程内共享'],
+            ['**调度方**', '内核', '内核 (1:1) 或用户态 (M:N)', '**用户态**（语言运行时/库）'],
+            ['**切换成本**', '~µs 级：TLB flush + 页表切', '~百 ns：寄存器+内核栈', '~十 ns：栈指针 + 少量寄存器'],
+            ['**创建成本**', '重（fork/exec）', '中（默认栈 1~8MB）', '轻（初始栈 2~8KB，Go 可动态增长）'],
+            ['**通信方式**', 'IPC / Pipe / Shm / Socket', '共享内存 + 锁 / 无锁结构', 'Channel / async-await / share'],
+            ['**故障隔离**', '一个崩不影响别的', '一个 panic 全进程挂', '一个 panic 通常也全挂（除非 recover）'],
+            ['**代表**', 'Nginx worker / Redis / PostgreSQL', 'Java / C++ / MySQL / Envoy', 'Go goroutine / Python asyncio / Kotlin'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: '内核态 vs 用户态调度',
+          body: '- **1:1 (Kernel Thread)**：Linux <code>pthread</code>、Java 线程；每个用户线程对应一个内核线程，切换要陷内核\n' +
+            '- **N:1 (User Thread)**：早期 Green Thread；一堆用户线程绑一个内核线程，一个 syscall 阻塞全组\n' +
+            '- **M:N (Hybrid)**：**Go GMP**、Erlang、Rust <code>tokio</code>；M 个内核线程调度 N 个协程，兼顾并行与轻量\n' +
+            '- **Coroutine over syscall**：用户态运行时把阻塞 syscall 换成 <code>epoll</code>/<code>io_uring</code>，让协程遇到 I/O 时**不阻塞内核线程**',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'Go GMP 调度模型（面试高频）',
+          body: '- **G (Goroutine)**：用户协程，栈 2~8KB 起步，可动态扩展至 1GB\n' +
+            '- **M (Machine)**：OS 内核线程，与 G 是 M:N\n' +
+            '- **P (Processor)**：逻辑处理器，持有本地 runq (最多 256 G)，个数由 <code>GOMAXPROCS</code> 决定\n\n' +
+            '**调度关键机制**：\n' +
+            '- **Work Stealing**：某 P 的 runq 空了，从别的 P 偷一半 G 过来跑\n' +
+            '- **Handoff**：M 陷入 syscall 时，P 会与 M 解绑并绑到另一个空闲 M，避免 syscall 阻塞其他 G\n' +
+            '- **Preemption（抢占）**：Go 1.14 引入**基于信号的异步抢占**——防止死循环 G 独占 P 导致 GC / STW 卡住；此前只在函数调用点检查抢占标志，纯计算循环卡死过\n' +
+            '- **网络轮询器 netpoller**：<code>epoll_wait</code>/<code>kqueue</code>/IOCP 集中处理，把就绪 socket 唤醒对应 G',
+        },
+        {
+          kind: 'ascii',
+          title: 'GMP 抽象图',
+          body:
+'  ┌──────────────┐  ┌──────────────┐\n' +
+'  │  M (kernel)  │  │  M (kernel)  │  ...\n' +
+'  └──────┬───────┘  └──────┬───────┘\n' +
+'         │                 │\n' +
+'  ┌──────▼───────┐  ┌──────▼───────┐\n' +
+'  │  P (logic)   │  │  P (logic)   │  个数 = GOMAXPROCS\n' +
+'  │  local runq  │  │  local runq  │\n' +
+'  │  [G G G ...] │  │  [G G G ...] │\n' +
+'  └──────────────┘  └──────────────┘\n' +
+'         │                 │\n' +
+'         └────────┬────────┘\n' +
+'          global runq  ◄── work stealing / netpoller wake-up',
+        },
+        {
+          kind: 'md',
+          title: '其它主流协程/异步生态',
+          body: '- **Python asyncio**：单线程 event loop + <code>async/await</code>；GIL 存在使多线程 CPU 密集无并行；协程适合 I/O\n' +
+            '- **Kotlin Coroutine**：CPS 编译期变换，<code>suspend</code> 函数不阻塞线程；<code>Dispatchers.IO/Default/Main</code> 分池\n' +
+            '- **Rust async**：<code>tokio</code>/<code>async-std</code>，Future 是零成本抽象；<code>Send/Sync</code> 编译期保证并发安全\n' +
+            '- **Erlang/Elixir Process**：BEAM 虚拟机上"进程"是超轻量协程（几百字节）；每个进程独立堆，无共享，靠消息传递\n' +
+            '- **C++20 coroutine**：语言级 <code>co_await/co_return</code>，但生态尚不统一\n' +
+            '- **微信服务器框架 mmcoroutine / libco**：hook syscall + <code>ucontext</code>，让同步风格代码底下跑异步',
+        },
+        {
+          kind: 'md',
+          title: '内存模型 & 可见性',
+          body: '- **volatile ≠ 原子**：C/C++ 里 <code>volatile</code> 只保证不被优化掉，**不保证跨 CPU 可见性**；要用 <code>std::atomic</code> 或 <code>memory_order_*</code>\n' +
+            '- **Happens-Before**：Java JMM / Go memory model / C++ memory_order 都用这个抽象刻画"A 的写对 B 的读一定可见"\n' +
+            '- **CPU Cache Line 64B**：**False Sharing 伪共享**——两个变量在同一 cacheline，两核心分别写会互相 invalidate，性能骤降；解法：**填充到 64B 对齐**（Java <code>@Contended</code>、Go 手动 pad）',
+        },
+        {
+          kind: 'md',
+          title: '同步原语选型',
+          body: '- **Mutex**：短临界区首选\n' +
+            '- **RWMutex**：读多写少；写饥饿风险，写等待时禁止新读者\n' +
+            '- **Spin Lock**：临界区极短、SMP 多核；单核纯浪费 CPU\n' +
+            '- **信号量 (Semaphore)**：计数型，控制并发度（如连接池 <code>chan struct{}{}</code> 版）\n' +
+            '- **Condvar**：等-通知语义，配合 mutex 用；一定循环判断谓词，防伪唤醒\n' +
+            '- **无锁结构 (Lock-Free)**：CAS + ABA 问题（用带 tag 的 pointer 或 hazard pointer 解决）\n' +
+            '- **RCU**：Linux 内核里读多写少的极致方案——**读端零开销**，写端复制修改后原子指针切换',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '并发经典事故',
+          body: '- **死锁四条件**：互斥 + 持有并等待 + 不可抢占 + **循环等待**——破一个即可\n' +
+            '- **优先级反转**：低优线程持锁，高优被中优抢占间接卡住 → **优先级继承 (PI)**\n' +
+            '- **惊群 (Thundering Herd)**：多个 worker 都 <code>accept()</code>，一个连接来全被唤醒；Linux 3.9+ <code>SO_REUSEPORT</code> 让内核只唤醒一个\n' +
+            '- **协程泄漏**：goroutine 阻塞在无缓冲 channel 上永不返回 → context 超时 + 用 <code>chan struct{}</code> 控退出\n' +
+            '- **锁粒度过粗**：一把大锁保护整张 map → **分段锁 / <code>sync.Map</code>** / 每 shard 一把锁\n' +
+            '- **锁粒度过细**：多把锁必须按固定顺序获取，否则互相持有对方锁死锁',
+        },
+        {
+          kind: 'md',
+          title: '上下文切换开销的量级',
+          body: '- 进程切换：**~几 µs**（TLB flush、页表、寄存器、cache 冷）\n' +
+            '- 线程切换（同进程）：**~百 ns 到 1 µs**（省了地址空间切）\n' +
+            '- 协程切换：**~10~100 ns**（纯用户态，只切栈指针 + 关键寄存器）\n' +
+            '- **暗成本**：切换后 CPU cache 冷、TLB miss；把相关任务 pin 在同一 CPU 反而快（<code>taskset</code> / <code>sched_setaffinity</code>）',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'table',
+          title: '选型决策',
+          header: ['场景', '推荐', '理由'],
+          rows: [
+            ['CPU 密集计算', '**进程池 / 线程池，个数 = 物理核**', '避免过多切换；**Amdahl 定律**决定收益上限'],
+            ['I/O 密集网络', '**协程 + epoll**（Go/Rust/Python asyncio）', '几万连接一个进程扛得住'],
+            ['需要强隔离/多语言', '**多进程**（Nginx worker / Redis）', '一个崩不影响别的'],
+            ['游戏世界服', '**单线程无锁 + 帧循环**', '强状态耦合、加锁反而慢；瓶颈在 CPU 计算'],
+            ['多任务但共享大内存', '**多线程 + 分段锁 / RCU**', '避免多进程复制大堆'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: '游戏 vs 互联网后台的并发模式选择',
+          body: '- **游戏后台**：世界状态高度耦合（AOE、扣血、buff），**单线程无锁 tick 循环** 20~60Hz，副本用 sharding 分服 → 关键是"减少跨线程状态同步"\n' +
+            '- **互联网后台**：请求彼此独立，DB 是瓶颈 → **协程池 + 连接池 + 异步刷盘**\n' +
+            '- **共同点**：**热点数据本地化**（NUMA aware / thread local / per-P cache），减少跨核共享',
+        },
+      ],
+    },
+    sources: ['综合整理：Go runtime 源码、Java Concurrency in Practice、Linux 内核调度器（2026-07）'],
+  },
+
+  // =============================================================
+  // 8. TCP-NET
+  // =============================================================
+  {
+    id: 'tcp-net',
+    title: 'TCP 网络编程',
+    icon: '🌊',
+    tagline: '三次握手 · 四次挥手 · epoll · Reactor · 粘包 · TIME_WAIT',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '记忆锚点',
+        body: '**握手 3 次**是"确认双方都能收发"最少次数；**挥手 4 次**因为**关闭是半双工的**——一方 FIN 只关自己方向，对方还能发。**TIME_WAIT 2MSL** 是为了旧包全部消散 + 让最后一个 ACK 有机会重传。**TCP 是字节流不是消息流** → 应用层必须自己定分包协议。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'ascii',
+          title: '三次握手 / 四次挥手',
+          body:
+'握手：                          挥手：\n' +
+'Client        Server           Active         Passive\n' +
+'  │──SYN────────►│              │───FIN───────►│  \n' +
+'  │             │              │              │  处理剩余数据\n' +
+'  │◄──SYN+ACK───│              │◄──ACK────────│  \n' +
+'  │              │              │              │  \n' +
+'  │──ACK────────►│              │◄──FIN────────│  \n' +
+'  │             │              │              │  \n' +
+'  │  ESTAB      │  ESTAB      │───ACK───────►│  \n' +
+'                                │              │  \n' +
+'                              TIME_WAIT       CLOSED\n' +
+'                              (2 * MSL)',
+        },
+        {
+          kind: 'md',
+          title: '状态机（重点几个）',
+          body: '- **SYN_SENT / SYN_RCVD**：握手中\n' +
+            '- **ESTABLISHED**：正常传输\n' +
+            '- **FIN_WAIT_1 / FIN_WAIT_2**：主动关闭方\n' +
+            '- **CLOSE_WAIT**：**被动方收到 FIN 但还没关**——线上出现大量 <code>CLOSE_WAIT</code> 通常是 **应用忘了 <code>close(fd)</code>**\n' +
+            '- **TIME_WAIT**：主动关闭方最后停留 <code>2 * MSL</code>（Linux 默认 2 分钟）',
+        },
+        {
+          kind: 'md',
+          title: '关键 socket 选项',
+          body: '- <code>SO_REUSEADDR</code>：允许绑定 <code>TIME_WAIT</code> 状态的地址（重启服务有用）\n' +
+            '- <code>SO_REUSEPORT</code>（Linux 3.9+）：**多个 socket 绑同一端口**，内核负载均衡分发到不同 worker → 干掉惊群\n' +
+            '- <code>TCP_NODELAY</code>：关闭 **Nagle 算法**（Nagle 会攒小包 200ms 再发，交互式应用要关）\n' +
+            '- <code>TCP_QUICKACK</code>：关闭延迟 ACK\n' +
+            '- <code>SO_KEEPALIVE</code>：探活；默认 2 小时才发探测——太长，业务通常应用层心跳\n' +
+            '- <code>TCP_CORK</code>：与 Nagle 相反，**攒满一个 MSS 才发**\n' +
+            '- <code>SO_LINGER</code>：<code>close()</code> 时是否等待未发数据；<code>l_onoff=1, l_linger=0</code> 会发 RST 而非 FIN',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'I/O 多路复用：select / poll / epoll',
+          body: '| 特性 | select | poll | **epoll (Linux)** |\n' +
+            '| --- | --- | --- | --- |\n' +
+            '| fd 上限 | 1024 (FD_SETSIZE) | 无 | 无 |\n' +
+            '| 数据结构 | bitmap | 链表 | **红黑树 + 就绪链表** |\n' +
+            '| 时间复杂度 | O(n) | O(n) | **O(1) 添加，O(k) 就绪** |\n' +
+            '| 触发模式 | 水平 | 水平 | **水平 LT + 边沿 ET** |\n' +
+            '| 内核↔用户拷贝 | 每次全量 | 每次全量 | **一次注册**，就绪时零拷贝 |\n\n' +
+            '- **LT（水平触发）**：只要 fd 还有数据就一直通知（默认，容错友好）\n' +
+            '- **ET（边沿触发）**：状态**变化时**才通知一次——必须一次性 <code>read</code> 到 <code>EAGAIN</code>，配非阻塞 fd\n' +
+            '- **kqueue** (BSD/macOS) / **IOCP** (Windows) / **io_uring** (Linux 5.1+，异步真正的下一代)',
+        },
+        {
+          kind: 'md',
+          title: 'Reactor / Proactor 模式',
+          body: '- **Reactor**（同步 I/O + 事件通知，主流）：epoll_wait 拿到就绪 fd → 分发给 handler → handler 自己 read/write\n' +
+            '  - **单 Reactor 单线程**：Redis 6 之前——简单，CPU 密集会卡死\n' +
+            '  - **单 Reactor 多线程**：主线程 accept + read，worker 线程处理业务\n' +
+            '  - **主从 Reactor**：主 Reactor 只管 accept，子 Reactor 池处理 I/O ← **Netty / Nginx / Redis 6 多线程 IO / Envoy** 都是这个\n' +
+            '- **Proactor**（异步 I/O，内核完成 read/write 后通知）：Windows IOCP、Linux <code>io_uring</code>；应用注册 buffer，内核填好通知',
+        },
+        {
+          kind: 'ascii',
+          title: '主从 Reactor 抽象',
+          body:
+'                    ┌──────────────┐\n' +
+'                    │ Main Reactor │  只做 accept()\n' +
+'                    │  epoll_wait  │\n' +
+'                    └──────┬───────┘\n' +
+'                           │ 分发新连接\n' +
+'          ┌────────────────┼────────────────┐\n' +
+'          ▼                ▼                ▼\n' +
+'   ┌───────────┐    ┌───────────┐    ┌───────────┐\n' +
+'   │Sub Reactor│    │Sub Reactor│    │Sub Reactor│  N = CPU 核数\n' +
+'   │epoll_wait │    │epoll_wait │    │epoll_wait │\n' +
+'   │ handler   │    │ handler   │    │ handler   │\n' +
+'   └───────────┘    └───────────┘    └───────────┘\n' +
+'          │                │                │\n' +
+'          └────────► Worker Pool ◄──────────┘\n' +
+'                (业务线程池，CPU 密集任务)',
+        },
+        {
+          kind: 'md',
+          title: '零拷贝 (Zero-Copy)',
+          body: '传统 <code>read+write</code>：**磁盘→内核缓冲→用户缓冲→内核 socket 缓冲→网卡**（4 次拷贝，2 次上下文切换）\n\n' +
+            '- <code>sendfile()</code>：**内核内直接 disk→socket**，2 次拷贝，1 次系统调用\n' +
+            '- <code>splice()</code>：pipe 中转，管道两端都在内核\n' +
+            '- <code>mmap + write</code>：内存映射，避免 read 那次拷贝\n' +
+            '- <code>SO_ZEROCOPY</code> (Linux 4.14+)：<code>send()</code> 直接引用用户 buffer\n' +
+            '- **DPDK / eBPF XDP**：绕过内核协议栈，用户态直接玩网卡包（HFT / CDN 压榨延迟）',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'TCP 编程五大坑',
+          body: '**1. 粘包 / 半包（TCP 是字节流）**：\n' +
+            '- 应用层协议必须**自定义分包**：定长 / 分隔符 (<code>\\r\\n</code>) / **长度字段**（最常用：4 字节大端长度 + 包体）\n' +
+            '- Netty 的 <code>LengthFieldBasedFrameDecoder</code> 就是干这个\n\n' +
+            '**2. 大量 TIME_WAIT**：\n' +
+            '- 短连接场景高并发时端口耗尽\n' +
+            '- **不要开 <code>tcp_tw_recycle</code>**（Linux 4.12 已删，NAT 后翻车）；<code>tcp_tw_reuse</code> 相对安全（仅客户端）\n' +
+            '- 治本：**长连接 + 连接池**（业务代理模块 platpxy 12000 上限就是这么设计）\n\n' +
+            '**3. 大量 CLOSE_WAIT**：\n' +
+            '- **应用没 close(fd) bug**——被动方收到 FIN 后忘关自己的写端\n' +
+            '- 排查：<code>ss -tan | grep CLOSE_WAIT</code>，找持有 fd 的进程\n\n' +
+            '**4. 惊群 (Thundering Herd)**：\n' +
+            '- 多进程 accept 同一 listen fd，一个连接来全被唤醒\n' +
+            '- Linux 4.5+ <code>EPOLLEXCLUSIVE</code> + <code>SO_REUSEPORT</code> 组合已解决\n\n' +
+            '**5. 半连接队列 SYN Flood**：\n' +
+            '- <code>tcp_max_syn_backlog</code> 满 → 新 SYN 被丢\n' +
+            '- 开 <code>tcp_syncookies=1</code>，用 hash 而非表存半连接',
+        },
+        {
+          kind: 'md',
+          title: '拥塞控制（面试常问但少人答对）',
+          body: '- **慢启动**：cwnd 从 1 MSS 起，每 RTT 翻倍\n' +
+            '- **拥塞避免**：cwnd ≥ ssthresh 后，每 RTT +1 MSS 线性增\n' +
+            '- **快速重传**：收到 3 个重复 ACK → 立即重传，不等 RTO\n' +
+            '- **快速恢复**：ssthresh = cwnd/2, cwnd = ssthresh + 3\n' +
+            '- **算法演进**：Reno → NewReno → CUBIC (Linux 默认) → **BBR**（Google，基于带宽和 RTT 建模，长肥管道更好）',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '生产级 TCP 服务的必备清单',
+          body: '- <code>SO_REUSEPORT</code> 分发到 N 个 worker（<code>N = CPU 核数</code>）\n' +
+            '- <code>SO_KEEPALIVE</code> 关掉，用**应用层心跳** (Keep-Alive、Ping/Pong) 探活可控\n' +
+            '- <code>TCP_NODELAY</code> 打开，交互式协议禁用 Nagle\n' +
+            '- 分包用**长度前缀**协议（4 字节 magic + 4 字节 length + payload），一定要**校验 length 上限**防内存爆炸\n' +
+            '- 连接池：**最小空闲 + 最大空闲 + 超时回收**\n' +
+            '- 优雅关闭：<code>shutdown(WR) → 读残余数据 → close</code>；避免 RST 打断对方\n' +
+            '- 指标必埋：**连接数、accept 队列长度、read/write 错误率、RTT、复用率**',
+        },
+      ],
+    },
+    sources: ['综合整理：《TCP/IP 详解 卷一》、Linux Programming Interface、Beej Guide、Netty 源码（2026-07）'],
+  },
+
+  // =============================================================
+  // 9. GC-STW
+  // =============================================================
+  {
+    id: 'gc-stw',
+    title: 'GC 与 STW · Go / JVM',
+    icon: '🗑️',
+    tagline: '三色标记 · 写屏障 · G1 / ZGC / Shenandoah · 逃逸分析',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'warn',
+        title: 'Stop-The-World 的本质',
+        body: 'STW 不是"暂停一切"——它是**GC 需要与 mutator（业务代码）达成一致**的窗口。要么让所有线程停在**安全点 (safepoint)**，要么用**读/写屏障** + **并发标记**把 STW 挤到毫秒级。**Go 的 STW 几百 µs，JVM ZGC 亚毫秒，都靠这套。**',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: 'GC 基础算法',
+          body: '- **引用计数 (RC)**：Python / Objective-C；实现简单，**无法处理循环引用**（Python 加了 gc 模块补）\n' +
+            '- **标记-清除 (Mark-Sweep)**：从 GC Root 遍标记存活；清除死对象；**产生碎片**\n' +
+            '- **标记-整理 (Mark-Compact)**：标记后把存活对象滑到一端，无碎片；停顿更长\n' +
+            '- **复制 (Copying)**：分 From/To 两半，存活对象复制到 To → From 全清；**无碎片但内存利用率减半**（新生代常用）\n' +
+            '- **分代 (Generational)**：多数对象 "朝生夕死" → 新生代频繁小 GC (Minor GC)；老年代少 GC 但停顿长 (Full GC)。**JVM 经典模型**',
+        },
+        {
+          kind: 'md',
+          title: '三色标记 (Tri-Color Marking)',
+          body: '- **白色**：未标记，最终被回收\n' +
+            '- **灰色**：已标记，但**引用还没扫**\n' +
+            '- **黑色**：已标记，**引用也扫过**\n\n' +
+            '**过程**：GC Root 全部染灰 → 循环取一个灰对象染黑 + 把它引用的白对象染灰 → 直到没有灰对象 → 剩余白色回收。\n\n' +
+            '**并发标记的问题**：mutator 可能把黑对象指向白对象，然后删除灰→白的引用 → 白对象被误回收。**必须靠屏障维持"三色不变式"**。',
+        },
+        {
+          kind: 'md',
+          title: '两种不变式 & 屏障',
+          body: '- **强三色不变式**：**黑对象不能直接指向白对象** → **插入屏障 (Insertion Barrier)**：黑→白 写入时把白改灰\n' +
+            '- **弱三色不变式**：黑→白可存在，但白必须**被灰对象可达**（有"灰路径"兜底）→ **删除屏障 (Deletion Barrier)**：删掉指向白的引用时把白改灰\n\n' +
+            '**实际实现**：\n' +
+            '- **Yuasa (删除屏障)**：**Go 1.7 前**\n' +
+            '- **Dijkstra (插入屏障)**\n' +
+            '- **Hybrid (混合屏障)**：**Go 1.8+** 引入——**栈上不用屏障 (标记栈时 STW 即可)**，**堆上插入 + 删除都开**；效果是**栈标记完之后，goroutine 不需要再次扫栈** → 显著减少 STW',
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: 'Go GC 演进（面试高频）',
+          body: '- **1.3**：Mark-Sweep，STW 全程，几百 ms\n' +
+            '- **1.5**：**并发标记**引入，STW 降到 10 ms\n' +
+            '- **1.8**：**混合写屏障 (Hybrid Barrier)**，栈免扫描，STW 降到 100 µs\n' +
+            '- **1.14**：**基于信号的异步抢占**，纯计算循环也能被 STW\n' +
+            '- **1.19**：软内存限制 <code>GOMEMLIMIT</code>——防 OOM 优于 <code>GOGC</code>\n' +
+            '- **1.21+**：持续优化 pacer；**GC Pacer** 目标：让 GC CPU 占用 ≤ 25%，堆增长到上次 <code>heap * (1 + GOGC/100)</code> 时触发',
+        },
+        {
+          kind: 'md',
+          title: 'Go GC 完整流程',
+          body: '```\n1. Sweep Termination     STW ~几十 µs   清理上轮残留\n2. Mark (并发)            与业务并发     从 root 三色标记 + 混合屏障\n3. Mark Termination       STW ~几百 µs   完成灰色队列 / 更新统计\n4. Sweep (并发/懒惰)       与业务并发     真正回收白色对象\n```\n\n**两次 STW 都是短暂的**——1.14 之后典型值 100~500 µs，堆几 GB 也不飙。',
+        },
+        {
+          kind: 'md',
+          title: 'JVM GC 演进',
+          body: '- **Serial**：单线程 STW，客户端应用\n' +
+            '- **Parallel Scavenge / Parallel Old**：多线程并行 STW，**吞吐优先**（Java 8 默认）\n' +
+            '- **CMS (Concurrent Mark Sweep)**：并发标记 + 清除，**最早的低延迟 GC**；碎片问题大，**Java 14 移除**\n' +
+            '- **G1 (Garbage First)**：**Region 分区**（每 Region 1~32MB），可预测停顿；**Java 9 默认**\n' +
+            '- **ZGC**：**Colored Pointer + Load Barrier**，STW 与堆大小无关（TB 级也 <10 ms，Java 15 生产可用；21 分代版进一步降）\n' +
+            '- **Shenandoah**（Red Hat）：与 ZGC 类似目标，**Brooks Pointer** 转发指针实现并发 compact\n' +
+            '- **Epsilon**：不 GC——用于压测',
+        },
+        {
+          kind: 'md',
+          title: 'ZGC 亚毫秒 STW 的诀窍',
+          body: '- **染色指针 (Colored Pointer)**：把标记状态藏在指针**未使用的高位**（Marked0 / Marked1 / Remapped 等）\n' +
+            '- **Load Barrier**：**读**指针时检查颜色，需要修正就现场修（把并发迁移的成本摊到读上）\n' +
+            '- **并发迁移 (Relocate)**：即使搬对象也不 STW；旧位置留转发指针\n' +
+            '- **代价**：需要 64 位系统、CPU 略贵；**不再受堆大小影响** → 从此 GC 停顿与堆容量脱钩',
+        },
+        {
+          kind: 'md',
+          title: '逃逸分析 (Escape Analysis)',
+          body: '- 编译期判断变量是否可能"逃出"当前函数（返回、写入全局、被闭包捕获）\n' +
+            '- **不逃逸 → 分配到栈**（无 GC 压力）；逃逸 → 堆\n' +
+            '- Go：<code>go build -gcflags "-m"</code> 看逃逸决策\n' +
+            '- 常见"逃逸导致 GC 压力大"：\n' +
+            '  - 返回局部变量指针\n' +
+            '  - <code>interface{}</code> 装箱（非指针小对象也逃）\n' +
+            '  - <code>map[string]interface{}</code> 频繁写\n' +
+            '  - 闭包捕获局部变量',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: 'GC 生产事故清单',
+          body: '- **Go 内存"退不回操作系统"**：runtime 保留内存做后续分配；<code>GOMEMLIMIT</code> + <code>debug.FreeOSMemory()</code> 强制归还\n' +
+            '- **JVM Full GC 循环**：老年代快满了，Full 后释放不多——排查大 map / 缓存穿透 / 类加载器泄漏\n' +
+            '- **GC 突刺打爆 P99**：解法用 **<code>GOGC</code> 调低触发频率但每次量小** / 迁 ZGC / 加内存降触发密度\n' +
+            '- **Metadata 泄漏**：JVM 反射 / 动态代理生成大量 Class 塞满 Metaspace → OOM MetaSpace\n' +
+            '- **Direct ByteBuffer 泄漏**：堆外内存 GC 不友好；靠 <code>Cleaner</code>，忘记回收会慢慢涨',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '排查工具箱',
+          body: '**Go**：\n' +
+            '- <code>GODEBUG=gctrace=1</code>：每次 GC 打一行统计（heap / STW / CPU%）\n' +
+            '- <code>runtime/pprof</code> heap profile → <code>go tool pprof</code>\n' +
+            '- <code>runtime.MemStats</code>\n\n' +
+            '**JVM**：\n' +
+            '- <code>-Xlog:gc*</code> (Java 9+) / <code>-XX:+PrintGCDetails</code>\n' +
+            '- <code>jcmd <pid> GC.heap_dump</code>；MAT / VisualVM 分析\n' +
+            '- <code>jstat -gc <pid> 1s</code>\n' +
+            '- **JFR (Flight Recorder)** + JMC：生产可开的低损耗采样',
+        },
+        {
+          kind: 'md',
+          title: '选型建议',
+          body: '- **要极低延迟 (P99 < 10 ms)**：Go / **JVM ZGC / Shenandoah**\n' +
+            '- **要极高吞吐 (批处理)**：JVM Parallel GC\n' +
+            '- **堆巨大 (>32GB)**：ZGC / Shenandoah（G1 也行但 STW 会随堆涨）\n' +
+            '- **不能容忍 GC 抖动的游戏世界服**：**C++ 手动内存管理** 或**对象池 + arena**（Go / Rust 都用 <code>sync.Pool</code>）',
+        },
+      ],
+    },
+    sources: ['综合整理：Go 官方 blog、JVM Handbook、ZGC/Shenandoah 论文（2026-07）'],
+  },
+
+  // =============================================================
+  // 10. ALGO-DS
+  // =============================================================
+  {
+    id: 'algo-ds',
+    title: '算法与数据结构 · 面试高频',
+    icon: '🧮',
+    tagline: '一致性哈希 · Ring / Jump / Maglev · 树 / 布隆 / 跳表',
+    hero: [
+      {
+        kind: 'callout',
+        variant: 'tip',
+        title: '为什么这些算法值得记',
+        body: '**分布式系统 = 一致性哈希 + 布隆过滤器 + 跳表 + LSM/B+ 树 + Merkle 树**——这几样占了后台面试算法题的一大半。挑最容易被追问的写出来，能秒杀"讲一下 Redis Cluster / Kafka / Cassandra 是怎么做的"这类连环问。',
+      },
+    ],
+    stages: {
+      'what-is': [
+        {
+          kind: 'md',
+          title: '一致性哈希三种主流实现',
+          body: '',
+        },
+        {
+          kind: 'table',
+          title: '对比',
+          header: ['算法', '思路', '内存', '查找复杂度', '扩缩容影响', '适用'],
+          rows: [
+            ['**Ring Hash (Ketama)**', '把节点哈希到 [0, 2³²) 环上，每个节点放 N 个虚拟节点；请求哈希后顺时针找第一个节点', 'O(N × V)（V=虚拟节点数，通常 100~200）', 'O(log(NV))', '**平均 1/N** 迁移', 'Redis Cluster、Memcached、大部分场景'],
+            ['**Jump Consistent Hash**', 'Google 论文，纯计算：<code>ch(key, num_buckets)</code>；无内存', '**0**', 'O(log N)', '**平均 1/N** 迁移，**分布最均匀**', '实例 ID 是**数字**才好用（NZMesh 就是这么选的）'],
+            ['**Maglev**', 'Google 出品，**查找表 (lookup table) M 个槽**（通常 M=65537 素数），每个后端偏好序列填槽', 'O(M)（65537 通常够用）', '**O(1)**', '**~1/N** 迁移', '**Google/Envoy L4 负载均衡**、需要极致查找速度'],
+          ],
+        },
+        {
+          kind: 'md',
+          title: 'Ring Hash 关键代码',
+          body: '```python\nclass RingHash:\n    def __init__(self, nodes, vnodes=160):\n        self.ring = {}          # hash -> node\n        self.sorted_keys = []\n        for n in nodes:\n            for i in range(vnodes):\n                h = md5(f"{n}#{i}".encode()).digest()  # 或 xxhash\n                # 拆成 4 个 32-bit hash，一个副本 4 个虚拟节点（Ketama 惯例）\n                for j in range(4):\n                    v = int.from_bytes(h[j*4:(j+1)*4], "big")\n                    self.ring[v] = n\n                    self.sorted_keys.append(v)\n        self.sorted_keys.sort()\n\n    def get(self, key):\n        h = int.from_bytes(md5(key.encode()).digest()[:4], "big")\n        idx = bisect_right(self.sorted_keys, h) % len(self.sorted_keys)\n        return self.ring[self.sorted_keys[idx]]\n```\n\n**为何要虚拟节点**：直接哈希节点物理 IP 分布严重不均；虚拟节点越多分布越均，代价是内存 + 变更时排序开销。',
+        },
+        {
+          kind: 'md',
+          title: 'Jump Consistent Hash（Google 论文原版）',
+          body: '```c\nint32_t JumpConsistentHash(uint64_t key, int32_t num_buckets) {\n    int64_t b = -1, j = 0;\n    while (j < num_buckets) {\n        b = j;\n        key = key * 2862933555777941757ULL + 1;   // LCG\n        j = (int64_t)((b + 1) * (double)(1LL << 31) / (double)((key >> 33) + 1));\n    }\n    return (int32_t)b;\n}\n```\n\n**核心思想**：从 bucket 0 开始，每次概率 <code>(b+1)/(j+1)</code> 决定"是否留在当前 bucket"；不然跳到 j。**期望迭代次数 O(log N)**、**内存 0**、**分布均匀**。\n\n**限制**：bucket 编号必须 **0 ~ N-1 连续整数**——扩容只能追加、缩容必须是从尾部——不适合"节点 IP 无序删除"场景（但 NZMesh 用 TBUSID 数字就是这个前提）。',
+        },
+        {
+          kind: 'md',
+          title: 'Maglev Hashing（Google 2016 SIGCOMM）',
+          body: '**目标**：负载均衡器上要**极低延迟 O(1) 查找**、**扩缩容时仅少量键迁移**、**均匀分布**。\n\n**做法**：\n1. **查找表 M 个槽**（M 是素数，通常 65537）\n2. 每个后端 <code>i</code> 生成一个"偏好序列 permutation"：<code>P[i][j] = (offset[i] + j × skip[i]) mod M</code>，其中 offset/skip 由后端 IP 独立哈希算出、skip 与 M 互质\n3. 轮流让每个后端"抢"一个槽——按偏好序列找**第一个未被占的槽**，占之\n4. 请求 lookup：<code>backend = table[hash(key) mod M]</code> ← **O(1)**\n\n**扩缩容**：加一个后端 → 重新填表；因每个后端偏好序列独立，**约 1/N 的槽会换主**，仍然均匀；对已有 flow 的迁移比例低。',
+        },
+        {
+          kind: 'md',
+          title: '树的家族（面试高频）',
+          body: '',
+        },
+        {
+          kind: 'table',
+          title: '树结构选型',
+          header: ['树', '特点', '用在哪'],
+          rows: [
+            ['**BST / AVL**', '严格平衡（左右差 ≤ 1），旋转多', '教学；实际业务少用'],
+            ['**红黑树**', '弱平衡（黑高一致），插删旋转少', 'C++ <code>std::map</code>、Java <code>TreeMap</code>、Linux CFS 调度、epoll 内部'],
+            ['**B / B+ 树**', '每节点多路（几十~几百 key），**磁盘友好**（一次 IO 读一节点）；B+ 叶子链表', '**数据库索引 (MySQL InnoDB)**、文件系统'],
+            ['**LSM Tree**', '写入先 memtable，满了刷成 SSTable；后台 compact 合并', '**LevelDB / RocksDB / Cassandra / HBase**（写多读少）'],
+            ['**跳表 (Skip List)**', '多层链表，期望 O(log n)；**实现比红黑简单**', 'Redis ZSet、LevelDB memtable、并发场景（易做无锁）'],
+            ['**字典树 Trie**', '按字符分叉；前缀匹配 O(m)', '路由表、自动补全、词典'],
+            ['**Radix / Patricia Trie**', 'Trie 压缩单链；**IP 路由表**核心', 'Linux FIB、Envoy 路由匹配'],
+            ['**Merkle Tree**', '叶子哈希 + 内部节点 = 子哈希拼接的哈希', 'Git、区块链、Cassandra 反熵、防作弊校验'],
+            ['**Segment Tree / BIT**', '区间求和/最值 O(log n)；BIT 更省常数', '打排行榜、区间查询业务'],
+            ['**Fenwick Tree (BIT)**', '前缀和 O(log n)', '同上，代码短'],
+          ],
+        },
+      ],
+      'why-choose': [
+        {
+          kind: 'md',
+          title: '布隆过滤器 (Bloom Filter)',
+          body: '**是什么**：位数组 + K 个哈希函数；插入时置 K 位；查询时检查 K 位是否全 1。\n\n- **False Positive** 存在（说"有"可能实际没有），**False Negative 不存在**（说"没有"就一定没）\n- **假阳率 p** 与 位数 m、元素数 n、hash 数 k 关系：<code>p ≈ (1 - e^(-kn/m))^k</code>；**最优 k = (m/n) × ln 2**\n- **实用估算**：**每元素 ~10 bit → 假阳率 ~1%**；每加 4.8 bit → 假阳率降 10 倍\n\n**变种**：\n- **Counting Bloom**：位改计数器，支持删除\n- **Cuckoo Filter**：支持删除 + 更好局部性；用两个 hash + 踢出\n- **RedisBloom**（Redis 8 内建）：SPACE-efficient，直接用 <code>BF.ADD/BF.EXISTS</code>\n\n**用途**：缓存穿透（DB 里都没有的 key 直接拒）、爬虫 URL 去重、DB 前置存在性判断（HBase / RocksDB SST 都有 Bloom 判断"这层有没有 key"）。',
+        },
+        {
+          kind: 'md',
+          title: 'HyperLogLog',
+          body: '- **基数估算**（有多少不同元素）**极小内存**——12 KB 就能算 10 亿量级 UV，误差 <1%\n- **原理**：把 hash 分块，取每块前导 0 数量的最大值 → 类似"抛硬币 n 次至少一次连中 k 个正面 → n ≈ 2^k"\n- **Redis <code>PFADD</code> / <code>PFCOUNT</code>** 就是这个',
+        },
+        {
+          kind: 'md',
+          title: 'LRU / LFU / ARC',
+          body: '- **LRU (Least Recently Used)**：**HashMap + 双向链表**——O(1) 访问 + 移到头\n- **LFU (Least Frequently Used)**：按访问次数淘汰；**冷启动慢**（新元素次数少易被淘汰）\n- **ARC (Adaptive Replacement Cache)**：ZFS 用；LRU + LFU 各一半自适应\n- **Redis 4+ LFU** 用 8-bit 计数器 + 概率衰减，避免长期积累旧热点',
+        },
+        {
+          kind: 'md',
+          title: '限流算法数学',
+          body: '- **令牌桶**：<code>tokens = min(capacity, tokens + rate × Δt)</code>；请求扣 N 个，<code>tokens < N</code> 就拒 → **允许突发**\n- **漏桶**：桶容量 + 恒定漏出速率 → **强制平滑**\n- **滑动窗口计数器**：把 1 秒切成 10 份，每 100ms 一格；查询近 1 秒时求和；**内存 O(格子数)**',
+        },
+        {
+          kind: 'md',
+          title: '经典面试算法题（Top 频次）',
+          body: '- **TopK**：**最小堆 K 大小**（O(N log K)）或 **快速选择**（期望 O(N)）\n- **LRU 手写**：<code>HashMap<Key, Node></code> + **双向链表** + <code>head/tail</code> 哨兵\n- **多线程交替打印 ABC**：用 3 个信号量或 <code>ReentrantLock + Condition</code>\n- **无重复字符最长子串**：滑动窗口 + <code>HashMap<char, lastIndex></code>\n- **合并 K 个有序链表**：**最小堆**（O(N log K)）\n- **LFU**：**HashMap + 频次桶（每桶又一个双向链表）**\n- **股票 II 题系列**：DP 状态机（持有 / 不持有）\n- **N 皇后**：回溯 + 位运算加速',
+        },
+      ],
+      'what-broke': [
+        {
+          kind: 'md',
+          title: '一致性哈希踩坑',
+          body: '- **Ring Hash 虚拟节点太少 → 分布严重倾斜**（100 起步，200 更稳）\n- **Ring Hash 用 md5 太慢** → 换 xxhash / murmur\n- **Jump Hash 只能追加**：删中间节点不行；解法是"打墓碑"（把删除的桶留着但不响应）\n- **Maglev 表大小不是素数** → 分布不均\n- **Bloom 假阳率忽略 hash 相关性** → 用不同 seed 的 murmur / xxhash，别用 md5 截段',
+        },
+      ],
+      'how-fixed': [
+        {
+          kind: 'md',
+          title: '面试快速反应表',
+          body: '- **一致性哈希 → 想到**：Ring / Jump / Maglev 三选一 + 虚拟节点 + 迁移 1/N\n- **缓存穿透 → 想到**：布隆过滤器 + 空值缓存\n- **有序集合 + 排行榜 → 想到**：跳表（Redis ZSet）或 Segment Tree\n- **区间查询 → 想到**：Segment Tree / BIT\n- **前缀匹配 → 想到**：Trie / Radix Trie\n- **数据校验 → 想到**：Merkle Tree\n- **写多读少存储 → 想到**：LSM Tree（LevelDB / RocksDB）\n- **磁盘索引 → 想到**：B+ 树\n- **UV 估算 → 想到**：HyperLogLog',
+        },
+      ],
+    },
+    sources: ['综合整理：Google Maglev/Jump 论文、Redis / RocksDB 源码、《数据结构与算法分析》（2026-07）'],
+  },
+];
+</script>
+<script>window.__GUIDE_THEME_ID__ = "gc-stw";</script>
+
+<script>
+(function () {
+  var id = window.__GUIDE_THEME_ID__;
+  var arr = window.__GUIDE_THEMES__ || [];
+  var t = arr.find(function (x) { return x.id === id; });
+  window.__GUIDE_MODE__ = 'single';
+  window.__GUIDE_THEME__ = t;
+})();
+</script>
+
+<script>// ==============================================================
+// Interview Review Guide — shared runtime (documentation style)
+// Vanilla JS. No CDN. Works from file://.
+// ==============================================================
+(function () {
+  'use strict';
+
+  const STAGES = [
+    { key: 'what-is',    label: '是什么' },
+    { key: 'why-choose', label: '为什么这么选' },
+    { key: 'what-broke', label: '踩过什么坑' },
+    { key: 'how-fixed',  label: '怎么填的' },
+  ];
+
+  // ---- Tiny Markdown (subset) -----------------------------------
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function renderInline(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, (_, c) => '<code>' + c + '</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    return s;
+  }
+  function renderMarkdown(md) {
+    if (!md) return '';
+    const lines = md.replace(/\r\n/g, '\n').split('\n');
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (/^```/.test(line)) {
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre><code>' + escapeHtml(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (/^---\s*$/.test(line)) { out.push('<hr>'); i++; continue; }
+      let m;
+      if ((m = /^####\s+(.*)$/.exec(line))) { out.push('<h4>' + renderInline(m[1]) + '</h4>'); i++; continue; }
+      if ((m = /^###\s+(.*)$/.exec(line)))  { out.push('<h4>' + renderInline(m[1]) + '</h4>'); i++; continue; }
+      if (/^>\s?/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, '')); i++; }
+        out.push('<blockquote>' + renderInline(buf.join(' ')) + '</blockquote>');
+        continue;
+      }
+      if (/^\|.*\|$/.test(line) && i + 1 < lines.length && /^\|[\s:\-|]+\|$/.test(lines[i + 1])) {
+        const header = line.split('|').slice(1, -1).map(s => s.trim());
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\|.*\|$/.test(lines[i])) {
+          rows.push(lines[i].split('|').slice(1, -1).map(s => s.trim()));
+          i++;
+        }
+        let html = '<table><thead><tr>';
+        header.forEach(h => html += '<th>' + renderInline(h) + '</th>');
+        html += '</tr></thead><tbody>';
+        rows.forEach(r => {
+          html += '<tr>';
+          r.forEach(c => html += '<td>' + renderInline(c) + '</td>');
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        out.push(html);
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^[-*]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^[-*]\s+/, '')); i++; }
+        out.push('<ul>' + buf.map(t => '<li>' + renderInline(t) + '</li>').join('') + '</ul>');
+        continue;
+      }
+      if (/^\d+\.\s+/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^\d+\.\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\d+\.\s+/, '')); i++; }
+        out.push('<ol>' + buf.map(t => '<li>' + renderInline(t) + '</li>').join('') + '</ol>');
+        continue;
+      }
+      if (/^\s*$/.test(line)) { i++; continue; }
+      const buf = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^```/.test(lines[i]) && !/^#{3,4}\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !/^\d+\.\s+/.test(lines[i]) && !/^>\s?/.test(lines[i]) && !(/^\|.*\|$/.test(lines[i]) && i + 1 < lines.length && /^\|[\s:\-|]+\|$/.test(lines[i + 1]))) {
+        buf.push(lines[i]); i++;
+      }
+      out.push('<p>' + renderInline(buf.join(' ')) + '</p>');
+    }
+    return out.join('\n');
+  }
+
+  // ---- Section renderers ---------------------------------------
+  const SECTION_RENDERERS = {
+    md(sec) {
+      const body = renderMarkdown(sec.body || '');
+      return sec.title ? ('<h4>' + escapeHtml(sec.title) + '</h4>' + body) : body;
+    },
+    quote(sec) {
+      return '<blockquote>' + renderInline(sec.text || '') + '</blockquote>';
+    },
+    kv(sec) {
+      const items = (sec.items || []).map(pair => {
+        const [k, v] = pair;
+        return '<div class="k">' + escapeHtml(k) + '</div><div class="v">' + renderInline(v) + '</div>';
+      }).join('');
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') + '<div class="kv">' + items + '</div>';
+    },
+    table(sec) {
+      const head = (sec.header || []).map(h => '<th>' + renderInline(h) + '</th>').join('');
+      const rows = (sec.rows || []).map(r => '<tr>' + r.map(c => '<td>' + renderInline(c) + '</td>').join('') + '</tr>').join('');
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<table><thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table>';
+    },
+    code(sec) {
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<pre><code>' + escapeHtml(sec.body || '') + '</code></pre>';
+    },
+    ascii(sec) {
+      return (sec.title ? '<h4>' + escapeHtml(sec.title) + '</h4>' : '') +
+        '<div class="ascii">' + escapeHtml(sec.body || '') + '</div>';
+    },
+    callout(sec) {
+      const variant = sec.variant || 'info';
+      return '<div class="callout ' + escapeHtml(variant) + '">' +
+        (sec.title ? '<div class="title">' + escapeHtml(sec.title) + '</div>' : '') +
+        (sec.body ? renderMarkdown(sec.body) : '') +
+        '</div>';
+    },
+  };
+  function renderSection(sec) {
+    const r = SECTION_RENDERERS[sec.kind];
+    if (!r) {
+      console.warn('[guide] unknown section kind:', sec.kind, sec);
+      return '<p>' + renderInline((sec.body || sec.text || JSON.stringify(sec))) + '</p>';
+    }
+    return r(sec);
+  }
+
+  // ---- Theme block rendering (documentation style) --------------
+  function renderThemeBlock(theme, opts) {
+    opts = opts || {};
+    let html = '';
+    html += '<section class="theme-block" id="' + escapeHtml(theme.id) + '">';
+    html += '<h2 class="theme-title" id="theme-' + escapeHtml(theme.id) + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '">§</a>' + escapeHtml(theme.icon || '') + ' ' + escapeHtml(theme.title || '') + '</h2>';
+    if (theme.tagline) html += '<div class="tagline">' + renderInline(theme.tagline) + '</div>';
+    if (theme.hero) {
+      html += (Array.isArray(theme.hero) ? theme.hero : [theme.hero]).map(renderSection).join('\n');
+    }
+    STAGES.forEach(stage => {
+      const secs = (theme.stages && theme.stages[stage.key]) || [];
+      const bodyHtml = secs.length
+        ? secs.map(renderSection).join('\n')
+        : '<p><em>待补充</em></p>';
+      html += '<h3 class="stage" data-stage="' + stage.key + '" id="' + escapeHtml(theme.id) + '__' + stage.key + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '__' + stage.key + '">§</a>' + escapeHtml(stage.label) + '</h3>';
+      html += bodyHtml;
+    });
+    if (theme.sources && theme.sources.length) {
+      html += '<h3 class="stage" data-stage="sources" id="' + escapeHtml(theme.id) + '__sources">内容来源</h3>';
+      html += '<ul>' + theme.sources.map(s => '<li>' + renderInline(s) + '</li>').join('') + '</ul>';
+    }
+    html += '</section>';
+    return html;
+  }
+
+  function renderSidebar(themes) {
+    let html = '';
+    html += '<div class="brand">📖 面试复习中心<small>9 年后台 · 7 大专题</small></div>';
+    html += '<h2>专题</h2><ul>';
+    themes.forEach(t => {
+      html += '<li><a href="#' + escapeHtml(t.id) + '" data-nav="' + escapeHtml(t.id) + '">' + escapeHtml(t.icon || '') + ' ' + escapeHtml(t.title) + '</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__what-is">是什么</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__why-choose">为什么这么选</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__what-broke">踩过什么坑</a></li>';
+      html += '<li class="sub"><a href="#' + escapeHtml(t.id) + '__how-fixed">怎么填的</a></li>';
+    });
+    html += '</ul>';
+    html += '<div class="tools">';
+    html += '<button id="btn-theme" title="亮/暗主题">☾ 主题</button>';
+    html += '<button onclick="window.print()" title="打印">🖨 打印</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderSidebarSingle(theme) {
+    let html = '';
+    html += '<div class="brand">📖 ' + escapeHtml(theme.title) + '<small>面试复习分册</small></div>';
+    html += '<h2>目录</h2><ul>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__what-is">① 是什么</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__why-choose">② 为什么这么选</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__what-broke">③ 踩过什么坑</a></li>';
+    html += '<li><a href="#' + escapeHtml(theme.id) + '__how-fixed">④ 怎么填的</a></li>';
+    if (theme.sources && theme.sources.length) {
+      html += '<li><a href="#' + escapeHtml(theme.id) + '__sources">📎 内容来源</a></li>';
+    }
+    html += '</ul>';
+    html += '<div class="tools">';
+    html += '<button id="btn-theme" title="亮/暗主题">☾ 主题</button>';
+    html += '<button onclick="window.print()" title="打印">🖨 打印</button>';
+    html += '<a href="index.html">← 返回首页</a>';
+    html += '</div>';
+    return html;
+  }
+
+  function bindThemeToggle() {
+    const btn = document.getElementById('btn-theme');
+    if (!btn) return;
+    let stored = null;
+    try { stored = localStorage.getItem('guide-theme'); } catch (_) {}
+    if (stored) document.documentElement.setAttribute('data-theme', stored);
+    btn.addEventListener('click', () => {
+      const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? '' : 'dark';
+      if (cur) document.documentElement.setAttribute('data-theme', cur);
+      else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('guide-theme', cur); } catch (_) {}
+    });
+  }
+
+  function bindMobileMenu() {
+    const btn = document.getElementById('menu-btn');
+    const sidebar = document.getElementById('sidebar');
+    if (!btn || !sidebar) return;
+    btn.addEventListener('click', () => sidebar.classList.toggle('open'));
+    sidebar.addEventListener('click', (e) => {
+      if (e.target.tagName === 'A') sidebar.classList.remove('open');
+    });
+  }
+
+  function bindScrollSpy(themes) {
+    const links = document.querySelectorAll('.sidebar a[data-nav]');
+    if (!links.length) return;
+    const map = {};
+    themes.forEach(t => {
+      const el = document.getElementById(t.id);
+      if (el) map[t.id] = el;
+    });
+    function onScroll() {
+      const y = window.scrollY + 100;
+      let active = themes[0] && themes[0].id;
+      themes.forEach(t => {
+        const el = map[t.id];
+        if (el && el.offsetTop <= y) active = t.id;
+      });
+      links.forEach(a => a.classList.toggle('active', a.dataset.nav === active));
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
+  // ---- Boot -----------------------------------------------------
+  function bootHub() {
+    const themes = window.__GUIDE_THEMES__ || [];
+    const sidebar = document.getElementById('sidebar');
+    const content = document.getElementById('content');
+    if (!sidebar || !content) return;
+
+    sidebar.innerHTML = renderSidebar(themes);
+    let contentHtml = '';
+    contentHtml += '<h1 class="doc-title">面试复习中心</h1>';
+    contentHtml += '<p class="doc-lede">9 年后台开发（3 年互联网 + 6 年游戏）· 7 大专题按 <strong>是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的</strong> 四段式组织。侧边栏可跳转，或直接向下滚动阅读。</p>';
+    themes.forEach(t => contentHtml += renderThemeBlock(t));
+    contentHtml += '<div class="footer-note" id="footer-note"></div>';
+    content.innerHTML = contentHtml;
+
+    const footer = document.getElementById('footer-note');
+    if (footer) footer.innerHTML = (window.__GUIDE_META__ && window.__GUIDE_META__.footerNote) || '';
+
+    bindThemeToggle();
+    bindMobileMenu();
+    bindScrollSpy(themes);
+  }
+
+  function bootSingle() {
+    const theme = window.__GUIDE_THEME__;
+    if (!theme) return;
+    const sidebar = document.getElementById('sidebar');
+    const content = document.getElementById('content');
+    if (!sidebar || !content) return;
+
+    sidebar.innerHTML = renderSidebarSingle(theme);
+    let contentHtml = '';
+    contentHtml += '<h1 class="doc-title">' + escapeHtml(theme.icon || '') + ' ' + escapeHtml(theme.title) + '</h1>';
+    if (theme.tagline) contentHtml += '<p class="doc-lede">' + renderInline(theme.tagline) + '</p>';
+    // For single view, render without the theme wrapper (theme title is the doc title)
+    if (theme.hero) {
+      contentHtml += (Array.isArray(theme.hero) ? theme.hero : [theme.hero]).map(renderSection).join('\n');
+    }
+    STAGES.forEach(stage => {
+      const secs = (theme.stages && theme.stages[stage.key]) || [];
+      const bodyHtml = secs.length ? secs.map(renderSection).join('\n') : '<p><em>待补充</em></p>';
+      contentHtml += '<h3 class="stage" data-stage="' + stage.key + '" id="' + escapeHtml(theme.id) + '__' + stage.key + '"><a class="anchor" href="#' + escapeHtml(theme.id) + '__' + stage.key + '">§</a>' + escapeHtml(stage.label) + '</h3>';
+      contentHtml += bodyHtml;
+    });
+    if (theme.sources && theme.sources.length) {
+      contentHtml += '<h3 class="stage" data-stage="sources" id="' + escapeHtml(theme.id) + '__sources">内容来源</h3>';
+      contentHtml += '<ul>' + theme.sources.map(s => '<li>' + renderInline(s) + '</li>').join('') + '</ul>';
+    }
+    contentHtml += '<div class="footer-note" id="footer-note"></div>';
+    content.innerHTML = contentHtml;
+
+    const footer = document.getElementById('footer-note');
+    if (footer) footer.innerHTML = (window.__GUIDE_META__ && window.__GUIDE_META__.footerNote) || '';
+
+    bindThemeToggle();
+    bindMobileMenu();
+  }
+
+  function boot() {
+    if (window.__GUIDE_MODE__ === 'hub') bootHub();
+    else if (window.__GUIDE_MODE__ === 'single') bootSingle();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  window.__GUIDE_API__ = { renderMarkdown, renderSection, renderThemeBlock };
+})();
+</script>
+</body>
+</html>
