@@ -116,6 +116,9 @@ export const sidebar = {
       children: [
         '/common/concurrency.md',
         '/common/go-gotchas.md',
+        '/common/cpp11-gotchas.md',
+        '/common/cpp20-gotchas.md',
+        '/common/rust-gotchas.md',
         '/common/design-model.md',
         '/common/gc-stw.md',
         '/common/algo-ds.md',
