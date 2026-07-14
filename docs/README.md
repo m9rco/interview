@@ -19,6 +19,9 @@ actions:
   - text: AI / 大模型
     link: /ai-llm/
     type: secondary
+  - text: 数据结构与算法
+    link: /algo/
+    type: secondary
 features:
   - title: 场景驱动
     details: 每条经验都从一个真实的特定场景问题出发，而不是罗列概念。
@@ -45,4 +48,5 @@ footer: 面试复习用 · 由 VuePress 生成 · 发布于 GitHub Pages
 - [游戏基础架构](/game-infra/) —— 接入网关/消息总线、CNI/服务网格、有状态迁移恢复、eBPF、一致性哈希、协程、秒杀、限流熔断、Raft/Gossip、LLVM
 - [游戏业务实现](/game-biz/) —— 多模板活动框架、幂等性设计、Redis 房间推荐、游戏 vs 互联网本质差异
 - [AI / 大模型](/ai-llm/) —— 大模型核心原理、推理与微调优化、RAG 检索增强（含数据清理）、Agent 开发
-- [通用后台基础](/common/concurrency.md) —— 并发、Go、设计模式、GC、算法 & 常见数据结构、排序、MySQL、Redis
+- [数据结构与算法](/algo/) —— 数据结构、排序与查找、二分、双指针/滑窗、回溯、动态规划、图论、后台高频算法（统一 C++ + 可视化）
+- [通用后台基础](/common/concurrency.md) —— 并发、Go、设计模式、GC、MySQL、Redis、消息队列、分布式事务

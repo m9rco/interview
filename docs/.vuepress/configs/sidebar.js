@@ -110,6 +110,34 @@ export const sidebar = {
     },
   ],
 
+  '/algo/': [
+    {
+      text: '概览',
+      children: ['/algo/README.md'],
+    },
+    {
+      text: '数据结构',
+      children: ['/algo/data-structures.md'],
+    },
+    {
+      text: '排序与查找',
+      children: ['/algo/sorting.md', '/algo/binary-search.md'],
+    },
+    {
+      text: '经典算法专题',
+      children: [
+        '/algo/two-pointers-sliding-window.md',
+        '/algo/backtracking.md',
+        '/algo/dynamic-programming.md',
+        '/algo/graph.md',
+      ],
+    },
+    {
+      text: '后台高频算法',
+      children: ['/algo/backend-algorithms.md'],
+    },
+  ],
+
   '/common/': [
     {
       text: '通用后台基础（跨域）',
@@ -122,9 +150,6 @@ export const sidebar = {
         '/common/rust-gotchas.md',
         '/common/design-model.md',
         '/common/gc-stw.md',
-        '/common/algo-ds.md',
-        '/common/data-structures.md',
-        '/common/sorting.md',
         '/common/mysql-innodb.md',
         '/common/redis.md',
         '/common/message-queue.md',

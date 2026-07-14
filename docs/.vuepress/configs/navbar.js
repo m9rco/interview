@@ -21,6 +21,10 @@ export const navbar = [
     link: '/ai-llm/',
   },
   {
+    text: '数据结构与算法',
+    link: '/algo/',
+  },
+  {
     text: '通用基础',
     link: '/common/concurrency.md',
   },

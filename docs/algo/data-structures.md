@@ -2,6 +2,10 @@
 
 > 覆盖后台面试高频考点：链表、栈与队列、树族（BST/AVL/红黑树）、堆、前缀树（Trie）、跳表、布隆过滤器、哈希表。每种结构：原理 → 复杂度 → 典型应用 → 代码示例（C++）。
 
+::: tip 🧠 一句话记忆锚点
+**数据结构选型看两问：要不要"有序 + 范围查询"、要不要"O(1) 存取"。O(1) 无序→哈希表；有序+范围→红黑树/跳表；前缀匹配→Trie；Top-K/优先级→堆；海量存在性判断+省内存→布隆过滤器。所有"平衡树/堆/跳表"的 O(log n) 本质都是"每步砍掉一半或一层"。**
+:::
+
 ---
 
 ## 1. 链表（Linked List）
@@ -234,6 +238,29 @@ std::vector<int> inorder(TreeNode* root) {
 
 数组索引关系：`parent(i) = (i-1)/2`，`left(i) = 2i+1`，`right(i) = 2i+2`
 
+**删除堆顶（sift-down）动画**：把末尾元素挪到堆顶后，它比孩子小（最大堆），于是**与较大的孩子交换、一路下沉**，直到满足堆性质。红色高亮就是正在下沉的"违规节点"：
+
+<svg viewBox="0 0 520 240" width="100%" style="max-width:520px;height:auto" role="img" aria-label="堆 sift-down：堆顶元素与较大孩子交换、逐层下沉">
+  <g stroke="#475569" stroke-width="1.5">
+    <line x1="260" y1="50" x2="150" y2="120"/><line x1="260" y1="50" x2="370" y2="120"/>
+    <line x1="150" y1="120" x2="90" y2="190"/><line x1="150" y1="120" x2="210" y2="190"/>
+    <line x1="370" y1="120" x2="310" y2="190"/><line x1="370" y1="120" x2="430" y2="190"/>
+  </g>
+  <g font-size="14" fill="#fff" text-anchor="middle">
+    <circle cx="260" cy="50"  r="20" fill="#334155"/><text x="260" y="55">3</text>
+    <circle cx="150" cy="120" r="20" fill="#334155"/><text x="150" y="125">9</text>
+    <circle cx="370" cy="120" r="20" fill="#334155"/><text x="370" y="125">7</text>
+    <circle cx="90"  cy="190" r="20" fill="#334155"/><text x="90"  y="195">4</text>
+    <circle cx="210" cy="190" r="20" fill="#334155"/><text x="210" y="195">8</text>
+    <circle cx="310" cy="190" r="20" fill="#334155"/><text x="310" y="195">1</text>
+    <circle cx="430" cy="190" r="20" fill="#334155"/><text x="430" y="195">6</text>
+  </g>
+  <circle r="22" fill="none" stroke="#dc2626" stroke-width="3">
+    <animateMotion path="M260 50 L 150 120 L 210 190" dur="4s" repeatCount="indefinite" keyPoints="0;0;0.5;0.5;1;1" keyTimes="0;0.2;0.45;0.65;0.9;1" calcMode="linear"/>
+  </circle>
+  <text x="20" y="228" font-size="11" fill="currentColor">3 &lt; max(9,7)=9 → 换到左；3 &lt; max(4,8)=8 → 再换；到叶子停。每层 O(1) 比较，共 O(log n)。</text>
+</svg>
+
 ### 复杂度
 
 | 操作 | 复杂度 |
@@ -364,6 +391,31 @@ struct Trie {
 层 1：   1 ── 3 ── 4 ── 7 ── 9
 层 0：   1 - 2 - 3 - 4 - 5 - 7 - 8 - 9  ← 原始链表
 ```
+
+**查找 7 的动画**：从最高层最左开始，"**能右则右（下一个 &lt; 目标）、否则下沉一层**"，像下楼梯一样跳过大段节点——期望 O(log n)：
+
+<svg viewBox="0 0 560 210" width="100%" style="max-width:560px;height:auto" role="img" aria-label="跳表查找 7：逐层向右，遇到更大值则下沉一层">
+  <g font-size="11" fill="#94a3b8"><text x="6" y="44">L3</text><text x="6" y="84">L2</text><text x="6" y="124">L1</text><text x="6" y="164">L0</text></g>
+  <!-- level links -->
+  <g stroke="#475569" stroke-width="1.5">
+    <line x1="60" y1="40" x2="520" y2="40"/>
+    <line x1="60" y1="80" x2="520" y2="80"/>
+    <line x1="60" y1="120" x2="520" y2="120"/>
+    <line x1="60" y1="160" x2="520" y2="160"/>
+  </g>
+  <!-- nodes -->
+  <g font-size="11" fill="#fff" text-anchor="middle">
+    <circle cx="60" cy="40" r="12" fill="#334155"/><text x="60" y="44">1</text><circle cx="520" cy="40" r="12" fill="#334155"/><text x="520" y="44">9</text>
+    <circle cx="60" cy="80" r="12" fill="#334155"/><text x="60" y="84">1</text><circle cx="240" cy="80" r="12" fill="#334155"/><text x="240" y="84">4</text><circle cx="520" cy="80" r="12" fill="#334155"/><text x="520" y="84">9</text>
+    <circle cx="60" cy="120" r="12" fill="#334155"/><text x="60" y="124">1</text><circle cx="180" cy="120" r="12" fill="#334155"/><text x="180" y="124">3</text><circle cx="240" cy="120" r="12" fill="#334155"/><text x="240" y="124">4</text><circle cx="400" cy="120" r="12" fill="#16a34a"/><text x="400" y="124">7</text><circle cx="520" cy="120" r="12" fill="#334155"/><text x="520" y="124">9</text>
+    <circle cx="60" cy="160" r="12" fill="#334155"/><text x="60" y="164">1</text><circle cx="120" cy="160" r="12" fill="#334155"/><text x="120" y="164">2</text><circle cx="180" cy="160" r="12" fill="#334155"/><text x="180" y="164">3</text><circle cx="240" cy="160" r="12" fill="#334155"/><text x="240" y="164">4</text><circle cx="300" cy="160" r="12" fill="#334155"/><text x="300" y="164">5</text><circle cx="400" cy="160" r="12" fill="#334155"/><text x="400" y="164">7</text><circle cx="460" cy="160" r="12" fill="#334155"/><text x="460" y="164">8</text><circle cx="520" cy="160" r="12" fill="#334155"/><text x="520" y="164">9</text>
+  </g>
+  <!-- search pointer: (1,L3)->down->(4,L2)->down->(7,L1) -->
+  <circle r="15" fill="none" stroke="#f59e0b" stroke-width="3">
+    <animateMotion path="M60 40 L 60 80 L 240 80 L 240 120 L 400 120" dur="5s" repeatCount="indefinite" keyPoints="0;0.15;0.15;0.5;0.5;0.65;0.65;1;1" keyTimes="0;0.15;0.25;0.45;0.55;0.7;0.8;0.95;1" calcMode="linear"/>
+  </circle>
+  <text x="20" y="198" font-size="11" fill="currentColor">L3:1→9太大，下沉；L2:1→4→9太大，下沉；L1:4→7 命中。高层"快速通道"跳过大段节点。</text>
+</svg>
 
 ### 复杂度
 
@@ -578,3 +630,30 @@ std::unordered_map<std::string, int> m4(expectedSize);
 需要有序 + 写多读少？               → 红黑树（B-Tree 磁盘场景）
 需要有序 + 读多写少？               → AVL 树
 ```
+
+## 面试高频题清单（按结构分类）
+
+**链表**
+- **Q：反转链表？** A：迭代三指针 `prev/cur/next`，逐个反向（见上）；递归版注意回溯时接 `head->next->next=head`。
+- **Q：判断链表有环 / 找环入口？** A：快慢指针，相遇即有环；再让一指针回头，同速前进相遇点即入口（Floyd 判圈）。
+- **Q：LRU Cache 手写？** A：`unordered_map<key, 双向链表节点*>` + 哨兵头尾，`get/put` 均 O(1)：命中移到头、超容删尾。
+
+**栈 / 队列**
+- **Q：有效括号 / 表达式求值？** A：栈匹配；表达式用两个栈（数字栈 + 运算符栈）或转逆波兰。
+- **Q：单调栈解什么？** A：下一个更大元素、每日温度、柱状图最大矩形、接雨水——"找左/右第一个更大/更小"。
+
+**树 / 堆**
+- **Q：红黑树 vs AVL 怎么选？** A：AVL 严格平衡、查找略快、旋转多，读密集；红黑树弱平衡、插删旋转少，写密集（std::map、Linux CFS）。
+- **Q：为什么 MySQL 用 B+ 树不用红黑树？** A：红黑树高瘦、一次比较一次磁盘 IO 太亏；B+ 树矮胖多路，一节点一页、叶子链表利于范围扫描。
+- **Q：Top-K 用什么？** A：维护 size=K 的**最小堆**（求最大 K 个），O(N log K)；或快速选择期望 O(N)。
+
+**跳表 / 哈希 / 布隆**
+- **Q：Redis ZSet 为什么用跳表不用红黑树？** A：实现简单、范围查询天然（底层有序链表）、并发/锁粒度友好；配合 hashtable 做 O(1) 按成员查。
+- **Q：哈希冲突怎么解决？扩容？** A：链地址法 / 开放寻址；负载因子超阈值 rehash（2 倍），渐进式 rehash 摊还避免卡顿。
+- **Q：布隆过滤器为什么能防缓存穿透？会误判吗？** A：位数组 + k 哈希，"说没有一定没有"（无假阴），"说有可能没有"（有假阳）；DB 里不存在的 key 直接在布隆层拒掉。
+
+## 选型指南（口诀）
+
+- 无序 O(1) 存取 → 哈希表；有序 + 范围 → 红黑树 / 跳表
+- 前缀匹配 → Trie；Top-K / 优先级 → 堆；海量去重/存在性 → 布隆过滤器
+- 磁盘索引 → B+ 树；写多读少落盘 → LSM Tree（见 [后台高频算法](/algo/backend-algorithms.md)）
