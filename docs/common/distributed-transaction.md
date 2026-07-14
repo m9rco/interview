@@ -53,8 +53,25 @@ title: 分布式事务 · 2PC / TCC / Saga / 最终一致性
 - **Confirm**：确认执行（把冻结转为实扣），**必须幂等**
 - **Cancel**：释放预留（解冻），**必须幂等**
 
-```
-下单：Try 冻结100元+冻结1件库存 → 都成功 → Confirm 实扣；任一失败 → Cancel 解冻
+```mermaid
+sequenceDiagram
+  participant TM as 事务协调器
+  participant A as 账户服务
+  participant S as 库存服务
+  Note over TM,S: Try 阶段（资源预留）
+  TM->>A: Try 冻结 100 元
+  TM->>S: Try 冻结 1 件库存
+  A-->>TM: OK
+  S-->>TM: OK
+  alt 全部 Try 成功
+    Note over TM,S: Confirm 阶段（幂等实扣）
+    TM->>A: Confirm 扣 100 元
+    TM->>S: Confirm 扣库存
+  else 任一 Try 失败
+    Note over TM,S: Cancel 阶段（幂等解冻）
+    TM->>A: Cancel 解冻
+    TM->>S: Cancel 解冻
+  end
 ```
 
 ::: warning TCC 三大坑：空回滚、悬挂、幂等
@@ -68,6 +85,18 @@ TCC 一致性强、无长时间锁，但**每个服务要实现三个接口**，
 ### Saga：长事务的补偿链
 
 把一个长事务拆成一串**本地事务 T1…Tn**，每个 Ti 配一个**补偿 Ci**。正常顺序执行 T1→Tn；中途 Ti 失败则反向执行 Ci-1→C1 补偿已完成的步骤。
+
+```mermaid
+flowchart LR
+  T1[T1 创建订单] --> T2[T2 扣库存] --> T3[T3 扣款] --> T4[T4 发货]
+  T3 -.失败.-> F((T3 失败))
+  F --> C2[C2 补库存] --> C1[C1 取消订单]
+  style F fill:#ffd0d0
+  style C2 fill:#ffe8b0
+  style C1 fill:#ffe8b0
+```
+
+> 正向 T1→T4 顺序执行；若 T3 扣款失败，则反向补偿已完成的 T2、T1（C2 补库存 → C1 取消订单），已提交的本地事务无法回滚只能语义补偿。
 
 - **编排式（Orchestration）**：中央协调器按流程调用各步骤和补偿（清晰、易监控）
 - **协同式（Choreography）**：各服务通过事件互相触发（去中心，但流程分散难追踪）

@@ -17,20 +17,18 @@
 3. 所有客户端收到全量指令后，在**相同逻辑帧**执行**完全相同的计算**
 4. 结果：所有客户端状态完全一致，无需同步状态数据
 
-```
-Client A            Server            Client B
-  │  Input(frame=5)    │                  │
-  │──────────────────► │                  │
-  │                    │  Input(frame=5)  │
-  │                    │ ◄────────────────│
-  │  AllInputs(frame=5)│                  │
-  │ ◄──────────────────│                  │
-  │                    │ AllInputs(frame=5)│
-  │                    │ ─────────────────►│
-  │  simulate(frame=5) │                  │
-  │  ──────────────── │                  │
-  │                    │                  │  simulate(frame=5)
-  │                    │                  │  ──────────────────
+```mermaid
+sequenceDiagram
+  participant A as Client A
+  participant S as Server（中继+裁判）
+  participant B as Client B
+  A->>S: Input(frame=5)
+  B->>S: Input(frame=5)
+  Note over S: 收齐本帧全部输入，打帧号
+  S-->>A: AllInputs(frame=5)
+  S-->>B: AllInputs(frame=5)
+  Note over A: simulate(frame=5)<br/>确定性逻辑
+  Note over B: simulate(frame=5)<br/>结果与 A 完全一致
 ```
 
 ---
@@ -114,20 +112,21 @@ InputDelay 越大，容忍网络抖动越强，但操作手感越差（需根据
 
 ### 4.1 整体流程
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    逻辑帧循环                         │
-│                                                     │
-│  每帧开始                                            │
-│    ├─ 采集本地 Input                                 │
-│    ├─ 发送 Input 到服务器                            │
-│    ├─ 等待/收取所有玩家 Input（含超时处理）            │
-│    ├─ 确定性逻辑 Simulate(allInputs)                 │
-│    └─ 帧号 +1                                        │
-│                                                     │
-│  渲染线程（并行）                                     │
-│    └─ 读取最新逻辑状态 + 插值渲染                     │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph Logic["逻辑帧循环（单线程 · 确定性）"]
+    direction TB
+    L1[采集本地 Input] --> L2[发送 Input 到服务器]
+    L2 --> L3{等待所有玩家 Input}
+    L3 -->|收齐| L4[确定性 Simulate&#40;allInputs&#41;]
+    L3 -->|超时| L5[补帧 HoldInput] --> L4
+    L4 --> L6[帧号 +1]
+    L6 --> L1
+  end
+  subgraph Render["渲染线程（并行 · 自由帧率）"]
+    R1[读取最新逻辑状态] --> R2[帧间插值渲染] --> R1
+  end
+  L4 -.状态快照.-> R1
 ```
 
 ### 4.2 服务端职责
@@ -392,21 +391,18 @@ if (currentFrame_ % 5 == 0) {
 
 ## 7. 与状态同步选型
 
-```
-游戏单位数量多（>100）？
-├─ 是 → 帧同步（带宽优势）
-└─ 否 → 看操作精度要求
-         ├─ 帧级精度判定（格斗/MOBA）→ 帧同步
-         └─ 宽松判定（MMO/FPS）       → 状态同步
-
-需要录像/回放？
-└─ 帧同步天然支持（存 Input 序列即可）
-
-跨平台客户端（Web/Mobile/PC）？
-└─ 帧同步需统一定点数实现，成本较高 → 评估状态同步
-
-对网络延迟敏感（格斗）？
-└─ 帧同步 + GGPO Rollback 方案
+```mermaid
+flowchart TD
+  Q1{单位数量 &gt; 100?} -->|是| FS[帧同步<br/>带宽优势碾压]
+  Q1 -->|否| Q2{操作精度要求}
+  Q2 -->|帧级判定<br/>格斗/MOBA| FS
+  Q2 -->|宽松判定<br/>MMO/FPS| SS[状态同步]
+  FS --> Q3{对延迟极敏感?<br/>格斗}
+  Q3 -->|是| RB[帧同步 + GGPO Rollback]
+  Q3 -->|否| FS2[标准帧同步]
+  FS --> Q4{跨平台客户端?<br/>Web/Mobile/PC}
+  Q4 -->|是| WARN[需统一定点数实现<br/>成本高 · 评估状态同步]
+  FS -.天然支持录像/回放<br/>存 Input 序列即可.-> REC[(帧录像)]
 ```
 
 ---

@@ -41,16 +41,14 @@ title: RAG 上下文剪枝实战（Listwise Pruning 复现）
 
 ### 在 rerank 与 generator 之间插一个 listwise grader
 
-```
-┌──────────┐    ┌───────────┐    ┌───────────┐    ┌──────────────────┐    ┌───────────┐
-│  用户问   │──▶ │  向量检索  │──▶│  rerank    │──▶│ ★ listwise LLM   │──▶│ generator │
-│          │    │  top-15   │    │  top-8    │    │   grader (新增)   │    │  LLM       │
-└──────────┘    └───────────┘    └───────────┘    └──────────────────┘    └───────────┘
-                                                          │ 一次调用看完 8 条 chunk
-                                                          │ 返回 [{id, score∈1..5}]
-                                                          ▼
-                                                threshold + keep_top_k 过滤，
-                                                每题保留 2 到 top_m 条不等（自适应）
+```mermaid
+flowchart LR
+  Q[用户问] --> R1[向量检索<br/>top-15]
+  R1 --> R2[rerank<br/>top-8]
+  R2 --> G["★ listwise LLM grader（新增）<br/>一次调用看完 8 条 chunk<br/>返回 [id, score∈1..5]"]
+  G --> F[threshold + keep_top_k 过滤<br/>每题自适应保留 2~top_m 条]
+  F --> GEN[generator LLM]
+  style G fill:#ffe8b0
 ```
 
 Grader 是个小 LLM，system prompt 就是这张打分表：

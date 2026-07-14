@@ -56,13 +56,18 @@ CPU 有特权级（x86 ring0 内核 / ring3 用户）。应用要访问硬件、
 
 **传统 `read() + write()` 下发文件到 socket（4 次拷贝 + 4 次上下文切换）：**
 
-```
-磁盘 --DMA--> 内核 Page Cache --CPU--> 用户缓冲区 --CPU--> Socket 内核缓冲区 --DMA--> 网卡
-     ①拷贝(DMA)          ②拷贝(CPU)         ③拷贝(CPU)             ④拷贝(DMA)
-每次 read/write 各一次用户↔内核切换 → 共 4 次上下文切换
+```mermaid
+flowchart LR
+  D[(磁盘)] -->|①DMA 拷贝| PC[内核 Page Cache]
+  PC -->|②CPU 拷贝| UB[用户缓冲区]
+  UB -->|③CPU 拷贝| SB[Socket 内核缓冲区]
+  SB -->|④DMA 拷贝| NIC[网卡]
+  style UB fill:#ffe0e0
+  style PC fill:#e0f0ff
+  style SB fill:#e0f0ff
 ```
 
-其中 ②③ 两次 CPU 拷贝纯属"数据进用户态又原样出去"，毫无处理，是浪费。
+> ②③ 两次是 **CPU 拷贝**（红色为用户态），数据"进用户态又原样出去"毫无处理，纯浪费；每次 `read`/`write` 各一次用户↔内核切换 → 共 **4 次上下文切换**。
 
 **优化路径：**
 
@@ -70,6 +75,19 @@ CPU 有特权级（x86 ring0 内核 / ring3 用户）。应用要访问硬件、
 - **`sendfile`**：数据全程在内核，不进用户态。**2 次上下文切换**；早期仍 3 拷贝
 - **`sendfile` + DMA gather（SG-DMA，需网卡支持）**：内核只把"文件描述符+长度"给 socket 缓冲区，网卡 DMA 直接从 Page Cache 收集数据 → **2 次拷贝（都是 DMA，CPU 零参与）、2 次上下文切换**。这是真正的"零（CPU）拷贝"
 - **`splice`**：在两个 fd 间通过内核管道移动数据，不要求文件（更通用），同样避免用户态拷贝
+
+**`sendfile` + SG-DMA 的数据路径（2 次 DMA 拷贝、CPU 零参与、2 次切换）：**
+
+```mermaid
+flowchart LR
+  D[(磁盘)] -->|①DMA 拷贝| PC[内核 Page Cache]
+  PC -.仅传 fd+长度描述符.-> SB[Socket 缓冲区]
+  PC -->|②DMA gather 拷贝<br/>网卡直接收集| NIC[网卡]
+  style PC fill:#e0f0ff
+  style SB fill:#e0f0ff
+```
+
+> 数据全程不进用户态，两次拷贝都由 DMA 完成，CPU 不搬一个字节——这才是"零（CPU）拷贝"。
 
 ::: warning "零拷贝"零的是什么
 零拷贝**不是一次都不拷**，而是**消除 CPU 参与的、用户态与内核态之间的冗余拷贝**。DMA 拷贝（磁盘→内存、内存→网卡）依然存在但不占用 CPU。适用前提：**数据不需要在用户态被加工**（原样转发，如静态文件服务、Kafka 消费者拉取）。若要压缩/加密/改写，就必须进用户态，零拷贝失效。

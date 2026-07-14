@@ -36,6 +36,20 @@ title: 消息队列 · 可靠投递与选型
 
 ### 可靠投递：三处不丢
 
+```mermaid
+flowchart LR
+  P[生产者] -->|"①acks=all + 重试<br/>publisher confirm"| B
+  subgraph B["Broker"]
+    L[(Leader)] -->|"②持久化 + 多副本<br/>ISR≥2"| R1[(副本1)]
+    L --> R2[(副本2)]
+  end
+  B -->|"③手动 ack<br/>先处理后提交位点"| C[消费者]
+  style P fill:#e0f0ff
+  style C fill:#e0ffe0
+```
+
+> 三个环节各自独立会丢，缺一段兜底就漏：① 生产端确认、② Broker 持久化+副本、③ 消费端手动 ack。
+
 ::: warning 消息在三个环节都会丢，要分别兜底
 **1. 生产端 → Broker**
 - Kafka：`acks=all`（等所有 ISR 副本落盘）+ `retries` 重试；`acks=1` 只等 Leader，Leader 挂了未同步的丢；`acks=0` 发了不管，最快最不可靠

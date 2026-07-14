@@ -12,26 +12,15 @@ platpxy / paypxy / mallsvrd 三模块技术演进
 
 **三模块关系图**
 
-```text
-                客户端
-                  │ (拉起支付/拉商城/买东西)
-        ┌─────────▼──────────┐
-        │      lobbysvrd       │  大厅按命令字分发
-        └─────────┬──────────┘
-                  │ mesh RPC (protobuf)
-        ┌─────────▼──────────┐
-        │     mallsvrd         │  商业化"大杂烩"：商城/商店/抽奖/活动/任务/支付编排
-        └───┬───────┬─────┬───┘
-   RPC      │       │     │ RPC
-  ┌─────────▼┐  ┌───▼───┐ └────────────► deposit / bagsvrd（原子扣币+发道具）
-  │ paypxy   │  │platpxy│
-  │(支付代理) │  │(平台) │
-  └────┬─────┘  └───┬───┘
-       │HTTP        │HTTP / 原生 TCP / cgo C++SDK
-   ┌───▼───┐   ┌────▼─────────────────────────────┐
-   │米大师 │   │微信/QQ/WeGame/抖音/腾讯安全/Hope... │
-   │Midas  │   │（十几个外部平台）                 │
-   └───────┘   └──────────────────────────────────┘
+```mermaid
+flowchart TB
+  C([客户端]) -->|拉起支付/拉商城/买东西| LB[lobbysvrd<br/>大厅按命令字分发]
+  LB -->|mesh RPC · protobuf| MALL[mallsvrd<br/>商业化大杂烩<br/>商城/商店/抽奖/活动/任务/支付编排]
+  MALL -->|RPC| PAY[paypxy<br/>支付代理]
+  MALL -->|RPC| PLAT[platpxy<br/>平台代理]
+  MALL -->|RPC · 原子扣币+发道具| DEP[deposit / bagsvrd]
+  PAY -->|HTTP| MIDAS[(米大师 Midas 计费)]
+  PLAT -->|HTTP / 原生 TCP / cgo C++SDK| EXT[(微信/QQ/WeGame/抖音<br/>腾讯安全/Hope... 十几个平台)]
 ```
 
 **一句话定位**
@@ -86,12 +75,24 @@ DATA     - json/xml 生成复杂度、签名嵌套
 
 **paypxy：完整支付链路**
 
-```text
-1. 下单  OnUnifiedBuyGoods → 先写 dbsvrd 订单表 (Ordered)
-         → 组米大师参数+签名+POST → 返 token/url 给客户端
-2. 支付  客户端拿 token 拉起米大师收银台 (代币走 in_game_coin_pay)
-3. 回调  米大师 POST → MidasDeliveryHandle 验签 → **幂等四道闸** → RPC 转 mallsvrd 真正发道具
-4. 对账  OnPlayerPropCheckNtf 货币校对，不一致时下发同步包
+```mermaid
+sequenceDiagram
+  participant C as 客户端
+  participant P as paypxy
+  participant DB as dbsvrd
+  participant M as 米大师 Midas
+  participant MALL as mallsvrd
+  C->>P: 1. 下单 OnUnifiedBuyGoods
+  P->>DB: 写订单表(Ordered)
+  P->>M: 组参数+签名+POST
+  M-->>P: 返回 token/url
+  P-->>C: 下发 token/url
+  C->>M: 2. 拉起收银台支付
+  M->>P: 3. 发货回调 POST
+  Note over P: MidasDeliveryHandle 验签<br/>幂等四道闸
+  P->>MALL: RPC 转发真正发道具
+  MALL-->>P: 发货成功
+  Note over C,MALL: 4. 对账 OnPlayerPropCheckNtf<br/>货币校对，不一致下发同步包
 ```
 
 **幂等四道闸** (`service_http.go:35`)：未找到订单 / 已终止订单 / **重复发货 → 返回成功** / 正常。
