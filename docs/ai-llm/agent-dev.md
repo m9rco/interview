@@ -6,6 +6,10 @@ title: Agent 开发
 
 > Agent Loop · 上下文管理 · 工具调用 · AI 巡检落地
 
+::: tip 🧠 一句话记忆锚点
+**Agent = Prompt + Tools + Memory + Loop + Guardrails + Evaluation，六件缺一都会在生产坏掉。核心闭环 Perception→Plan→Act→Reflect；工具要幂等 + 校验 + 截断 + 可回滚；上下文靠分层记忆(短期原文 / 中期摘要+关键事实 pin 住 / 长期向量库)。Demo 跑通只是 20%，剩下 80% 是评测与护栏。**
+:::
+
 ## 场景问题
 
 ### Agent 的最小闭环：Perception → Plan → Act → Reflect
@@ -89,6 +93,43 @@ flowchart TD
 - 关键事实以 `key: value` 格式压入 system prompt
 - 滑动窗口只对"过程日志"生效，不动关键事实
 
+下图：短期记忆是一个**滑动窗口**（紫框右移，划出窗外的旧对话被丢弃/压缩），但被 **pin 的关键事实（绿色 📌）永不滑走**；窗外内容沉淀进中期摘要，更久远的进长期向量库。
+
+<svg viewBox="0 0 660 240" width="100%" style="max-width:660px;height:auto" role="img" aria-label="Agent 分层记忆：短期滑动窗口 + pin 住的关键事实 + 中期摘要 + 长期向量库">
+  <text x="12" y="26" font-size="12" fill="currentColor">短期：最近 N 轮原文（滑动窗口）</text>
+  <g font-size="10" fill="#e2e8f0">
+    <rect x="20"  y="36" width="70" height="30" rx="4" fill="#334155"/><text x="30" y="55">轮1</text>
+    <rect x="96"  y="36" width="70" height="30" rx="4" fill="#334155"/><text x="106" y="55">轮2</text>
+    <rect x="172" y="36" width="70" height="30" rx="4" fill="#16a34a"/><text x="180" y="55">📌关键事实</text>
+    <rect x="248" y="36" width="70" height="30" rx="4" fill="#334155"/><text x="258" y="55">轮4</text>
+    <rect x="324" y="36" width="70" height="30" rx="4" fill="#334155"/><text x="334" y="55">轮5</text>
+    <rect x="400" y="36" width="70" height="30" rx="4" fill="#334155"/><text x="410" y="55">轮6</text>
+    <rect x="476" y="36" width="70" height="30" rx="4" fill="#334155"/><text x="486" y="55">轮7</text>
+    <rect x="552" y="36" width="70" height="30" rx="4" fill="#334155"/><text x="562" y="55">轮8</text>
+  </g>
+  <!-- sliding window frame -->
+  <rect y="32" width="236" height="38" rx="6" fill="none" stroke="#a78bfa" stroke-width="2.5">
+    <animate attributeName="x" values="16;240;380" dur="6s" repeatCount="indefinite"/>
+  </rect>
+  <text x="16" y="86" font-size="10" fill="#94a3b8">← 窗外旧轮次被压缩/丢弃，但 📌 关键事实固定保留 →</text>
+
+  <!-- arrows down -->
+  <path d="M120 66 L 120 120" stroke="#64748b" stroke-width="1.2" marker-end="url(#ah)"/>
+  <path d="M330 66 L 330 176" stroke="#64748b" stroke-width="1.2" marker-end="url(#ah)"/>
+  <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 z" fill="#64748b"/></marker></defs>
+
+  <text x="12" y="118" font-size="12" fill="currentColor">中期：本任务摘要 + 关键事实（KV 抽取）</text>
+  <rect x="20" y="126" width="300" height="34" rx="6" fill="#1e293b" stroke="#475569"/>
+  <text x="30" y="147" font-size="11" fill="#cbd5e1">summarize + extract_facts → {service, symptom, action}</text>
+
+  <text x="12" y="186" font-size="12" fill="currentColor">长期：向量库（历史相似任务，按需召回）</text>
+  <path d="M360 176 a 40 8 0 0 0 80 0 v 34 a 40 8 0 0 1 -80 0 z" fill="#0ea5e9" fill-opacity="0.25" stroke="#0ea5e9"/>
+  <ellipse cx="400" cy="176" rx="40" ry="8" fill="#0ea5e9" fill-opacity="0.4" stroke="#0ea5e9"/>
+  <text x="400" y="204" text-anchor="middle" font-size="10" fill="#7dd3fc">vector DB</text>
+  <circle r="4" fill="#7dd3fc"><animateMotion path="M470 216 L 430 200" dur="3s" repeatCount="indefinite"/></circle>
+  <text x="452" y="230" font-size="10" fill="#94a3b8">相似历史召回（一次 RAG）</text>
+</svg>
+
 ### Prompt Engineering 的核心杠杆
 
 - **System prompt** 定角色、能力边界、输出格式
@@ -160,6 +201,24 @@ flowchart TD
 | **Semantic Kernel (MSFT)** | C#/Py/Java | 企业集成 | Plugin + Planner + Kernel |
 
 ## 沉淀结论
+
+### 面试常见问题清单（按主题分类）
+
+**闭环与架构**
+- **Q：Agent 的最小闭环是什么？** A：Perception → Plan → Act → Reflect 循环，模型自主决定下一步、观察结果再迭代。
+- **Q：ReAct 和 Plan-and-Execute 区别？** A：ReAct 每步现想现做（Thought→Action→Observation）；Plan-and-Execute 先出完整计划再逐步执行、中途可 replan，适合长任务。
+
+**工具调用**
+- **Q：Function Calling 的协议本质？** A：LLM 输出结构化 JSON 声明"调哪个工具、参数是什么"，Runtime 执行后把 `tool_result` 塞回上下文继续推理；MCP 是跨模型统一的工具协议。
+- **Q：工具设计四原则？** A：幂等（同参多次结果一致）、参数校验 + 友好错误（模型能自我修正）、返回截断（别打爆 context）、副作用可回滚（危险操作二次确认）。
+
+**上下文与记忆**
+- **Q：对话历史撑爆 200k context 怎么办？** A：分层记忆——短期留最近 N 轮原文、中期压成摘要 + pin 关键事实、长期进向量库；工具输出先返摘要、需要时再回读全文。
+- **Q：滑动窗口/摘要压缩的典型事故？** A：摘要漂移丢关键约束、滑窗误删早期指令、向量误召语义相近但事实相反的历史——所以关键事实要 pin 住不参与滑动。
+
+**可靠性与评测**
+- **Q：Agent 生产化最容易坏在哪？** A：无限循环（同调用去重 + 最大轮数熔断）、工具输出爆炸（分页/摘要）、参数幻觉（JSON Schema 强校验）、成本失控（token 预算 + 熔断）、副作用不可控（白名单 + human-in-the-loop）。
+- **Q：Agent 怎么评测？** A：Golden Set 回归（成功率/步数/成本）+ 红队对抗测试 + 离线回放 + A/B 影子流量；Demo 跑通只是 20%，评测和护栏是剩下 80%。
 
 ::: tip 心法总结
 **Agent = Prompt + Tools + Memory + Loop + Guardrails + Evaluation。** 缺任何一样都会在生产坏掉——Demo 跑通只是 20% 的工作，剩下 80% 是评测和护栏。

@@ -6,6 +6,10 @@ title: 大模型核心原理
 
 > Transformer / Self-Attention · 位置编码 · Tokenization · Scaling Law · 解码采样 · 涌现与对齐
 
+::: tip 🧠 一句话记忆锚点
+**大模型 = Self-Attention（任意位置直连 + 全并行，代价是 O(n²)）+ 位置编码（注意力本身不知词序）+ Scale（Chinchilla 参数/数据等比） + 对齐（SFT→RLHF/DPO）。一切生成都归结为"预测下一个 token"，输出风格由解码采样决定。**
+:::
+
 ## 场景问题
 
 ### 为什么是 Transformer，不是 RNN/LSTM？
@@ -54,6 +58,49 @@ Decoder-only 胜出的核心原因：**任务大一统**——预训练与推理
 ```text
 Attention(Q, K, V) = softmax( Q·Kᵀ / √d_k ) · V
 ```
+
+下图直观展示这个过程：**当前 token 的 Query 依次给每个 Key 打分（扫描光束），softmax 归一化成权重（右侧长条），再按权重把各 Value 加权汇聚成"新表示"**。权重高的 Key（K2）贡献最大。
+
+<svg viewBox="0 0 660 250" width="100%" style="max-width:660px;height:auto" role="img" aria-label="Self-Attention：Query 对各 Key 打分并按 softmax 权重加权求和">
+  <rect x="18" y="100" width="96" height="48" rx="8" fill="#7c3aed"/>
+  <text x="66" y="122" text-anchor="middle" font-size="13" fill="#fff">Q</text>
+  <text x="66" y="140" text-anchor="middle" font-size="11" fill="#e9d5ff">当前 token</text>
+
+  <!-- Key nodes -->
+  <g font-size="12" fill="currentColor">
+    <rect x="250" y="14"  width="76" height="34" rx="6" fill="#1e293b" stroke="#475569"/><text x="288" y="35" text-anchor="middle">K1 / V1</text>
+    <rect x="250" y="74"  width="76" height="34" rx="6" fill="#1e293b" stroke="#38bdf8"/><text x="288" y="95" text-anchor="middle">K2 / V2</text>
+    <rect x="250" y="134" width="76" height="34" rx="6" fill="#1e293b" stroke="#475569"/><text x="288" y="155" text-anchor="middle">K3 / V3</text>
+    <rect x="250" y="194" width="76" height="34" rx="6" fill="#1e293b" stroke="#475569"/><text x="288" y="215" text-anchor="middle">K4 / V4</text>
+  </g>
+
+  <!-- Q -> K scanning beams (staggered opacity = 逐个打分) -->
+  <g stroke="#a78bfa" fill="none">
+    <line x1="114" y1="124" x2="250" y2="31"  stroke-width="1.5"><animate attributeName="stroke-opacity" values="0.12;1;0.12" dur="4s" begin="0s"   repeatCount="indefinite"/></line>
+    <line x1="114" y1="124" x2="250" y2="91"  stroke-width="3.5"><animate attributeName="stroke-opacity" values="0.12;1;0.12" dur="4s" begin="1s"   repeatCount="indefinite"/></line>
+    <line x1="114" y1="124" x2="250" y2="151" stroke-width="2"  ><animate attributeName="stroke-opacity" values="0.12;1;0.12" dur="4s" begin="2s"   repeatCount="indefinite"/></line>
+    <line x1="114" y1="124" x2="250" y2="211" stroke-width="1.5"><animate attributeName="stroke-opacity" values="0.12;1;0.12" dur="4s" begin="3s"   repeatCount="indefinite"/></line>
+  </g>
+
+  <!-- softmax weight bars -->
+  <g font-size="11" fill="currentColor">
+    <rect x="340" y="21"  height="18" rx="3" fill="#64748b"><animate attributeName="width" values="6;22;22" dur="4s" begin="0s" repeatCount="indefinite"/></rect><text x="410" y="35">0.1</text>
+    <rect x="340" y="81"  height="18" rx="3" fill="#38bdf8"><animate attributeName="width" values="6;120;120" dur="4s" begin="1s" repeatCount="indefinite"/></rect><text x="470" y="95">0.6</text>
+    <rect x="340" y="141" height="18" rx="3" fill="#64748b"><animate attributeName="width" values="6;44;44" dur="4s" begin="2s" repeatCount="indefinite"/></rect><text x="392" y="155">0.2</text>
+    <rect x="340" y="201" height="18" rx="3" fill="#64748b"><animate attributeName="width" values="6;22;22" dur="4s" begin="3s" repeatCount="indefinite"/></rect><text x="410" y="215">0.1</text>
+  </g>
+
+  <!-- aggregate -> output -->
+  <path d="M326 31 C 470 31, 480 118, 546 124" stroke="#334155" fill="none" stroke-width="1"/>
+  <path d="M326 91 C 470 91, 480 118, 546 124" stroke="#38bdf8" fill="none" stroke-width="3"/>
+  <path d="M326 151 C 470 151, 480 130, 546 128" stroke="#334155" fill="none" stroke-width="1.4"/>
+  <path d="M326 211 C 470 211, 480 130, 546 128" stroke="#334155" fill="none" stroke-width="1"/>
+  <rect x="546" y="100" width="100" height="48" rx="8" fill="#0ea5e9"/>
+  <text x="596" y="120" text-anchor="middle" font-size="12" fill="#fff">新表示</text>
+  <text x="596" y="138" text-anchor="middle" font-size="10" fill="#e0f2fe">Σ wᵢ·Vᵢ</text>
+  <!-- traveling pulse on dominant path -->
+  <circle r="4" fill="#f0f9ff"><animateMotion path="M114 124 L 288 91 L 596 124" dur="4s" begin="1s" repeatCount="indefinite"/></circle>
+</svg>
 
 - **Q/K/V** 都是输入 embedding 经三个可学习矩阵 `W_Q / W_K / W_V` 线性变换得到。
 - **除以 √d_k**：点积随维度增大而方差变大，不缩放会把 softmax 推入梯度极小的饱和区。
@@ -171,6 +218,27 @@ flowchart LR
 ::: tip 心法总结
 **大模型 = Transformer（Self-Attention 全连接 + 位置编码）× Scale（Chinchilla 最优的参数/数据配比）+ 对齐（SFT→RLHF/DPO）。** 一切生成行为都归结为"预测下一个 token"，而输出风格由**解码采样**控制；O(n²) 注意力是能力之源，也是所有长上下文与推理优化的战场。
 :::
+
+### 面试常见问题清单（按主题分类）
+
+**架构**
+- **Q：为什么 Transformer 取代 RNN/LSTM？** A：Self-Attention 让任意两位置直连（路径 O(1)）且整段并行；RNN 串行不能并行、长程靠隐状态传递会梯度消失。代价是注意力 O(n²)。
+- **Q：为什么主流大模型是 Decoder-only？** A：任务大一统——预训练与推理都是同一个 next-token prediction，天然适配指令/对话/few-shot，架构简单易 scale。
+- **Q：Attention 为什么除以 √d_k？** A：点积随维度增大方差变大，不缩放会把 softmax 推入梯度极小的饱和区，训练不稳。
+- **Q：多头注意力的意义？** A：把 Q/K/V 切成 h 份并行，各头学不同关注模式（语法/指代/位置），类似 CNN 多通道。
+
+**位置与分词**
+- **Q：注意力知道词序吗？怎么注入位置？** A：不知道（排列不变），必须显式注入——正弦绝对编码 / RoPE（相对位置、可外推）/ ALiBi（距离线性偏置）。
+- **Q：一个中文字是几个 token？** A：不定，常 1~2+ 个；BPE/BBPE 按高频子词/字节切，计费与上下文长度都按 token 算。
+
+**训练与解码**
+- **Q：Scaling Law 与 Chinchilla 的结论？** A：能力随 N/D/C 幂律提升；给定算力，参数与数据应约等比例增长（~20 tokens/参数），别一味堆参数。
+- **Q：temperature=0 是否完全确定？** A：理论上贪心确定，但受浮点/并行归约顺序、MoE 路由影响，实际仍可能有微小非确定性。
+- **Q：Top-k 与 Top-p 区别？** A：Top-k 固定候选个数；Top-p（Nucleus）按累积概率动态截断，是主流默认。
+
+**能力边界**
+- **Q：加事实知识该微调还是 RAG？** A：微调擅长改风格/格式/能力；加事实/时效知识优先 [RAG](/ai-llm/rag.md)。
+- **Q：上下文窗口越大越好吗？** A：否，有 O(n²) 开销 + "迷失在中间"，长窗≠会用长窗。
 
 延伸阅读：[推理与微调优化](/ai-llm/llm-inference-optimization.md) · [RAG 检索增强生成](/ai-llm/rag.md) · [Agent 开发](/ai-llm/agent-dev.md)
 

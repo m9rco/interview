@@ -6,6 +6,10 @@ title: 推理与微调优化
 
 > Prefill/Decode · KV Cache · FlashAttention · PagedAttention/vLLM · 量化 · 投机解码 · MoE · LoRA/QLoRA · RLHF/DPO · 蒸馏
 
+::: tip 🧠 一句话记忆锚点
+**先量瓶颈再选招：Prefill 卡算力、Decode 卡显存带宽。KV Cache 降复杂度、FlashAttention 降访存、PagedAttention + Continuous Batching 提吞吐、量化 + 投机解码降延迟与成本。训练侧——能不训就 RAG/prompt，要训用 LoRA/QLoRA，对齐用 DPO 起步。**
+:::
+
 ## 场景问题
 
 ### 一次生成到底慢在哪、贵在哪？
@@ -81,6 +85,31 @@ KV_bytes ≈ 2 (K和V) × layers × seq_len × n_kv_heads × head_dim × bytes_p
 
 Decode 是带宽瓶颈，大模型每步只吐 1 token 很浪费带宽。**用一个小 draft 模型一次猜 k 个 token，大模型一次并行 verify 这 k 个**——猜中就白赚，猜错回退。结果分布**与只用大模型完全一致**（无损加速），实测 2~3x。变体：Medusa（多头自投机）、EAGLE。
 
+下图：draft 小模型飞快连吐 5 个候选，大模型**一次并行核验**——前 3 个命中（转绿、白赚），第 4 个失配（变红）→ 从失配处回退，后面作废重猜。
+
+<svg viewBox="0 0 660 235" width="100%" style="max-width:660px;height:auto" role="img" aria-label="投机解码：draft 模型连猜 k 个 token，大模型并行核验，命中转绿、失配回退">
+  <text x="12" y="30" font-size="12" fill="currentColor">draft 小模型（快）连猜：</text>
+  <g font-size="13" fill="#fff">
+    <rect x="70" y="44" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="opacity" values="0;1;1;1;1" dur="5s" begin="0s"   repeatCount="indefinite"/></rect><text x="115" y="67" text-anchor="middle">the</text>
+    <rect x="170" y="44" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="opacity" values="0;0;1;1;1" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="215" y="67" text-anchor="middle">cat</text>
+    <rect x="270" y="44" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="opacity" values="0;0;0;1;1" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="315" y="67" text-anchor="middle">sat</text>
+    <rect x="370" y="44" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="opacity" values="0;0;0;0;1" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="415" y="67" text-anchor="middle">on</text>
+    <rect x="470" y="44" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="opacity" values="0;0;0;0;1" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="515" y="67" text-anchor="middle">sky</text>
+  </g>
+
+  <text x="230" y="118" font-size="12" fill="currentColor">↓ 大模型一次并行 verify ↓</text>
+
+  <text x="12" y="160" font-size="12" fill="currentColor">核验结果：</text>
+  <g font-size="13" fill="#fff">
+    <rect x="70" y="150" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="fill" values="#64748b;#64748b;#16a34a;#16a34a;#16a34a" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="115" y="173" text-anchor="middle">the ✓</text>
+    <rect x="170" y="150" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="fill" values="#64748b;#64748b;#64748b;#16a34a;#16a34a" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="215" y="173" text-anchor="middle">cat ✓</text>
+    <rect x="270" y="150" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="fill" values="#64748b;#64748b;#64748b;#64748b;#16a34a" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="315" y="173" text-anchor="middle">sat ✓</text>
+    <rect x="370" y="150" width="90" height="36" rx="6" fill="#64748b"><animate attributeName="fill" values="#64748b;#64748b;#64748b;#64748b;#dc2626" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="415" y="173" text-anchor="middle">on ✗</text>
+    <rect x="470" y="150" width="90" height="36" rx="6" fill="#334155" opacity="0.5"><animate attributeName="opacity" values="0.5;0.5;0.5;0.5;0.2" dur="5s" begin="0s" repeatCount="indefinite"/></rect><text x="515" y="173" text-anchor="middle" fill="#94a3b8">作废</text>
+  </g>
+  <text x="70" y="214" font-size="11" fill="currentColor">命中 3 个 = 一次前向白赚 3 步；第 4 个失配 → 回退到此处，由大模型给出正确 token 后重新起猜。</text>
+</svg>
+
 ### MoE：稀疏激活，参数多但每次只用一部分
 
 **Mixture-of-Experts**：把 FFN 换成 N 个专家 + 一个路由器，每个 token 只激活 top-k（如 8 选 2）个专家。**总参数量巨大，单次推理算力却只用一小部分**——用显存换算力效率。挑战：路由负载均衡、专家显存占用、通信开销。代表：Mixtral、DeepSeek-MoE。
@@ -146,6 +175,26 @@ flowchart TD
 ::: tip 心法总结
 **推理优化 = 认清 Prefill(算力) / Decode(带宽) 两阶段 → KV Cache 降复杂度、FlashAttention 降访存、PagedAttention+Continuous Batching 提吞吐、量化+投机解码降延迟与成本。训练优化 = 能不训就 RAG/prompt，要训就 PEFT(LoRA/QLoRA)，对齐用 DPO 起步。** 每一招都对应一个明确瓶颈——先量瓶颈，再选招。
 :::
+
+### 面试常见问题清单（按主题分类）
+
+**两阶段与瓶颈**
+- **Q：一次推理慢在哪、贵在哪？** A：拆两阶段——Prefill 并行处理 prompt、算力瓶颈；Decode 自回归逐 token、显存**带宽**瓶颈（每步要把整个模型权重搬一遍）。
+- **Q：为什么量化能直接提速？** A：Decode 是带宽瓶颈，权重从 fp16 降到 int8/4bit，搬的数据变少，decode 更快、单卡还能塞更大模型。
+
+**KV Cache 与显存**
+- **Q：KV Cache 解决什么、代价是什么？** A：缓存已算的 K/V，每步只算新 token，复杂度 O(n²)→O(n)；代价是显存，长上下文/大 batch 时常比权重还吃显存。
+- **Q：怎么省 KV 显存？** A：GQA/MQA（多 Q 头共享一组 KV 头）、KV Cache 量化（int8/int4）、PagedAttention 消碎片。
+
+**吞吐与延迟**
+- **Q：FlashAttention 是近似吗？** A：不是，数学上完全等价；它是 IO-aware 分块 + online softmax，不落地 n×n 矩阵，省的是访存。
+- **Q：PagedAttention / Continuous Batching 各解决什么？** A：前者像 OS 分页管 KV、消碎片 + 前缀共享；后者迭代级动态拼批、谁完谁换，GPU 始终打满。
+- **Q：投机解码是近似加速吗？** A：**不是，无损**——大模型 verify 保证输出分布一致，只有速度收益（2~3x）。
+
+**训练与微调**
+- **Q：LoRA / QLoRA / 全参微调怎么选？** A：能不训就 RAG/prompt；要训优先 LoRA（只训 <1% 参数）；显存紧张用 QLoRA（4bit 主干，单卡微调 65B）；全参是最后一档。
+- **Q：RLHF 与 DPO 区别？** A：RLHF 需奖励模型 + PPO，效果强但复杂易训崩；DPO 直接用偏好对做分类式优化，免奖励模型免 RL，更稳更省，成主流。
+- **Q：MoE = 免费的大模型吗？** A：否，算力省（每 token 只激活 top-k 专家），但**显存要装下所有专家**，且路由/通信复杂。
 
 延伸阅读：[大模型核心原理](/ai-llm/llm-fundamentals.md) · [RAG 检索增强生成](/ai-llm/rag.md) · [Agent 开发](/ai-llm/agent-dev.md)
 

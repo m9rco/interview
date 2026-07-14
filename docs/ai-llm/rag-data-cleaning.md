@@ -2,6 +2,10 @@
 
 > **定位**：RAG 质量的天花板在数据，检索再好也救不了噪声文档。本篇聚焦数据清理全链路：从原始文件抽取、分块、元数据注入、去重，到质量过滤，每环节说清楚"是什么 → 怎么做 → 为什么这么做 → 为什么别的不行 → 沉淀结论"。
 
+::: tip 🧠 一句话记忆锚点
+**RAG 质量的天花板在数据，不在模型：干净数据能把 Recall@10 从 60% 拉到 85%。链路记五步——格式专用抽取(+OCR 兜底) → 分块(chunk_size + overlap 是最高杠杆超参) → 元数据注入(溯源/权限/时效) → 两阶段去重(精确 MD5 + 语义 MinHash) → 质量门禁(垃圾进垃圾出)。**
+:::
+
 ---
 
 ## 1. 场景问题
@@ -79,6 +83,32 @@ def clean_noise(text: str) -> str:
 ### 2.2 分块策略（Chunking）
 
 三种主流策略，按场景选：
+
+下图直观展示**为什么要 overlap**：滑动窗口逐块右移，若无重叠，跨块的实体/数字/句子会被硬切断；相邻块保留一段 overlap（高亮区），就把"骑在边界上"的语义缝合回来。
+
+<svg viewBox="0 0 660 210" width="100%" style="max-width:660px;height:auto" role="img" aria-label="分块 overlap：滑动窗口右移，相邻块保留重叠区避免语义被切断">
+  <!-- long document bar -->
+  <text x="20" y="28" font-size="11" fill="currentColor">原始长文本</text>
+  <rect x="20" y="36" width="620" height="26" rx="4" fill="#1e293b" stroke="#475569"/>
+  <text x="30" y="54" font-size="11" fill="#94a3b8">……上下文连续的文本流，实体与数字可能骑在任意边界上……</text>
+
+  <!-- sliding window -->
+  <rect y="34" width="200" height="30" rx="4" fill="#7c3aed" fill-opacity="0.35" stroke="#a78bfa">
+    <animate attributeName="x" values="20;250;420" dur="6s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- resulting chunks with overlap -->
+  <text x="20" y="104" font-size="11" fill="currentColor">切出的块（相邻块 overlap 高亮）</text>
+  <g font-size="11" fill="#e2e8f0">
+    <rect x="20"  y="116" width="220" height="30" rx="4" fill="#334155"/><text x="30" y="135">chunk A（512 token）</text>
+    <rect x="210" y="150" width="220" height="30" rx="4" fill="#334155"/><text x="220" y="169">chunk B</text>
+    <rect x="400" y="116" width="220" height="30" rx="4" fill="#334155"/><text x="410" y="135">chunk C</text>
+  </g>
+  <!-- overlap regions -->
+  <rect x="210" y="116" width="30" height="30" fill="#16a34a" fill-opacity="0.6"><animate attributeName="fill-opacity" values="0.2;0.75;0.2" dur="3s" repeatCount="indefinite"/></rect>
+  <rect x="400" y="150" width="30" height="30" fill="#16a34a" fill-opacity="0.6"><animate attributeName="fill-opacity" values="0.2;0.75;0.2" dur="3s" begin="1s" repeatCount="indefinite"/></rect>
+  <text x="470" y="200" font-size="11" fill="currentColor">绿色 = overlap，缝合被边界切断的语义</text>
+</svg>
 
 #### a) 固定长度分块
 
@@ -297,3 +327,18 @@ flowchart TB
 3. **元数据是 RAG 的"索引"**：向量检索解决语义相关，元数据 filter 解决权限/时效/来源约束。
 4. **去重要两阶段**：精确去重 O(1) 拦截副本，语义去重拦截改版近似文档。
 5. **质量门是保险丝**：宁可漏掉 5% 的边界文档，也不让噪声文档污染整个知识库。
+
+## 6. 面试常见问题清单（按主题分类）
+
+**抽取与分块**
+- **Q：为什么不能 pdfplumber 一把梭全抽？** A：扫描件是图片、无文本层，会全军覆没；要按格式选解析器 + OCR 兜底。
+- **Q：chunk_size 怎么定？为什么要 overlap？** A：太大噪声多、稀释检索；太小语义不完整。overlap（如 64 token）把骑在边界上的实体/数字/句子缝回来，防止被硬切断。
+- **Q：固定 / 语义 / 层次分块怎么选？** A：均质文本用固定长度；技术文档用语义分块（相似度阈值切）；长文档用层次分块（Parent-Child，检索子块、喂父块）。
+
+**去重与质量**
+- **Q：为什么只做精确去重不够？** A：精确 hash 只拦完全相同的副本；改版/微调文档语义重复但字节不同，要靠语义去重（MinHash LSH / 向量聚类，阈值 ~0.85）。
+- **Q：不加元数据会怎样？** A：无法溯源、无法做权限/时效/来源过滤，也无法审计"答案出自哪篇哪页"。
+- **Q：质量门禁卡什么？** A：长度下限、可打印字符比例、重复率、语言判定——垃圾进垃圾出，宁缺毋滥。
+
+**总纲**
+- **Q：RAG 效果不好，先调模型还是先洗数据？** A：先洗数据——数据质量 > 模型选型，同一 Embedding 下干净数据可把 Recall@10 从 60% 提到 85%；分块是最高杠杆超参。
