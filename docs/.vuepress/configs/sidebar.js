@@ -71,8 +71,8 @@ export const sidebar = {
       ],
     },
     {
-      text: '编译',
-      children: ['/game-infra/llvm-compile.md'],
+      text: '编译与排查',
+      children: ['/game-infra/llvm-compile.md', '/game-infra/sanitizers.md'],
     },
   ],
 
