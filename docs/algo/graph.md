@@ -102,20 +102,23 @@ std::vector<int> topoSort(int n, const std::vector<std::vector<int>>& g) {
 
 ```cpp
 #include <queue>
+typedef std::pair<long long,int> PLI;                 // {dist, node}
 std::vector<long long> dijkstra(int src, const std::vector<std::vector<std::pair<int,int>>>& wg) {
     int n = wg.size();
     std::vector<long long> dist(n, LLONG_MAX);
-    std::priority_queue<std::pair<long long,int>,
-        std::vector<std::pair<long long,int>>, std::greater<>> pq;   // 小顶堆 {dist, node}
-    dist[src] = 0; pq.push({0, src});
+    std::priority_queue<PLI, std::vector<PLI>, std::greater<PLI>> pq;  // 小顶堆
+    dist[src] = 0; pq.push(std::make_pair(0LL, src));
     while (!pq.empty()) {
-        auto [d, u] = pq.top(); pq.pop();
+        PLI top = pq.top(); pq.pop();
+        long long d = top.first; int u = top.second;
         if (d > dist[u]) continue;                    // 过期条目跳过
-        for (auto [v, w] : wg[u])
+        for (size_t i = 0; i < wg[u].size(); i++) {
+            int v = wg[u][i].first, w = wg[u][i].second;
             if (dist[u] + w < dist[v]) {              // 松弛
                 dist[v] = dist[u] + w;
-                pq.push({dist[v], v});
+                pq.push(std::make_pair(dist[v], v));
             }
+        }
     }
     return dist;                                      // O(E log V)
 }

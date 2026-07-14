@@ -38,6 +38,7 @@
 ### 代码示例
 
 ```cpp
+#include <iostream>
 #include <unordered_map>
 
 struct Node {
@@ -59,7 +60,7 @@ Node* reverseList(Node* head) {
     return prev;
 }
 
-// LRU Cache 核心结构（双向链表 + unordered_map）
+// LRU Cache（双向链表 + unordered_map，get/put 均 O(1)）
 struct DNode {
     int key, val;
     DNode* prev;
@@ -79,8 +80,42 @@ struct LRUCache {
         head->next = tail;
         tail->prev = head;
     }
+    void remove(DNode* n) { n->prev->next = n->next; n->next->prev = n->prev; }
+    void addFront(DNode* n) { n->next = head->next; n->prev = head; head->next->prev = n; head->next = n; }
+    int get(int key) {
+        if (!cache.count(key)) return -1;
+        DNode* n = cache[key]; remove(n); addFront(n); return n->val;    // 命中：移到头部
+    }
+    void put(int key, int val) {
+        if (cache.count(key)) { DNode* n = cache[key]; n->val = val; remove(n); addFront(n); return; }
+        if ((int)cache.size() == cap) {                                 // 超容：淘汰尾部
+            DNode* lru = tail->prev; remove(lru); cache.erase(lru->key); delete lru;
+        }
+        DNode* n = new DNode(key, val); addFront(n); cache[key] = n;
+    }
 };
+
+int main() {
+    // 反转链表：1->2->3 变 3->2->1
+    Node* head = new Node(1);
+    head->next = new Node(2);
+    head->next->next = new Node(3);
+    head = reverseList(head);
+    std::cout << "反转后: ";
+    for (Node* p = head; p; p = p->next) std::cout << p->val << (p->next ? "->" : "\n");
+
+    // LRU（容量 2）
+    LRUCache lru(2);
+    lru.put(1, 10);
+    lru.put(2, 20);
+    std::cout << "get(1) = " << lru.get(1) << "\n";   // 10（1 变为最近使用）
+    lru.put(3, 30);                                    // 容量满 → 淘汰最久未用的 key 2
+    std::cout << "get(2) = " << lru.get(2) << "\n";   // -1（已淘汰）
+    return 0;
+}
 ```
+
+> 编译运行：`g++ -std=c++11 demo.cpp && ./a.out` → 输出 `反转后: 3->2->1` / `get(1) = 10` / `get(2) = -1`。
 
 ---
 
@@ -108,6 +143,7 @@ struct LRUCache {
 ### 代码示例
 
 ```cpp
+#include <iostream>
 #include <vector>
 #include <stack>
 
@@ -125,6 +161,15 @@ std::vector<int> nextGreater(const std::vector<int>& nums) {
         stk.push(i);
     }
     return res;
+}
+
+int main() {
+    std::vector<int> nums = {2, 1, 2, 4, 3};
+    auto res = nextGreater(nums);
+    std::cout << "下一个更大元素: ";
+    for (int x : res) std::cout << x << " ";   // 4 2 4 0 0（0 表示右侧无更大）
+    std::cout << "\n";
+    return 0;
 }
 ```
 
@@ -151,6 +196,7 @@ std::vector<int> nextGreater(const std::vector<int>& nums) {
 ### 代码示例
 
 ```cpp
+#include <iostream>
 #include <vector>
 #include <stack>
 
@@ -186,6 +232,16 @@ std::vector<int> inorder(TreeNode* root) {
         cur = cur->right;
     }
     return res;
+}
+
+int main() {
+    TreeNode* root = nullptr;
+    for (int x : {5, 3, 7, 2, 4, 6, 8}) root = insert(root, x);
+    auto io = inorder(root);
+    std::cout << "BST 中序(有序): ";
+    for (int x : io) std::cout << x << " ";   // 2 3 4 5 6 7 8
+    std::cout << "\n";
+    return 0;
 }
 ```
 
@@ -280,6 +336,7 @@ std::vector<int> inorder(TreeNode* root) {
 ### 代码示例
 
 ```cpp
+#include <iostream>
 #include <vector>
 #include <queue>
 
@@ -299,6 +356,15 @@ std::vector<int> topK(const std::vector<int>& nums, int k) {
         minHeap.pop();
     }
     return res;  // 返回 Top K 最大元素（升序）
+}
+
+int main() {
+    std::vector<int> nums = {3, 1, 5, 12, 2, 11};
+    auto res = topK(nums, 3);
+    std::cout << "Top-3 最大: ";
+    for (int x : res) std::cout << x << " ";   // 5 11 12（升序）
+    std::cout << "\n";
+    return 0;
 }
 ```
 
@@ -331,6 +397,7 @@ std::vector<int> topK(const std::vector<int>& nums, int k) {
 ### 代码示例
 
 ```cpp
+#include <iostream>
 #include <string>
 #include <array>
 
@@ -375,6 +442,16 @@ struct Trie {
         return true;
     }
 };
+
+int main() {
+    Trie t;
+    t.insert("apple");
+    std::cout << std::boolalpha
+              << "search(apple)   = " << t.search("apple")      << "\n"   // true
+              << "search(app)     = " << t.search("app")        << "\n"   // false（不是完整单词）
+              << "startsWith(app) = " << t.startsWith("app")    << "\n";  // true（是前缀）
+    return 0;
+}
 ```
 
 ---
@@ -433,8 +510,10 @@ struct Trie {
 ### 代码示例（简化版）
 
 ```cpp
-#include <cstdlib>
+#include <iostream>
 #include <array>
+#include <climits>
+#include <cstdlib>
 
 constexpr int MAX_LEVEL = 16;
 constexpr double P = 0.5;
@@ -460,6 +539,22 @@ struct SkipList {
         return lv;
     }
 
+    void insert(int val) {
+        std::array<SkipNode*, MAX_LEVEL> update{};      // 各层待更新的前驱
+        SkipNode* cur = head;
+        for (int i = level - 1; i >= 0; i--) {
+            while (cur->forward[i] && cur->forward[i]->val < val) cur = cur->forward[i];
+            update[i] = cur;
+        }
+        int lv = randomLevel();
+        if (lv > level) { for (int i = level; i < lv; i++) update[i] = head; level = lv; }
+        SkipNode* node = new SkipNode(val);
+        for (int i = 0; i < lv; i++) {                   // 在每一层把新节点接进链表
+            node->forward[i] = update[i]->forward[i];
+            update[i]->forward[i] = node;
+        }
+    }
+
     bool search(int val) const {
         SkipNode* cur = head;
         for (int i = level - 1; i >= 0; i--) {
@@ -470,6 +565,16 @@ struct SkipList {
         return cur != nullptr && cur->val == val;
     }
 };
+
+int main() {
+    srand(42);
+    SkipList sl;
+    for (int x : {1, 3, 4, 7, 9}) sl.insert(x);
+    std::cout << std::boolalpha
+              << "search(7) = " << sl.search(7) << "\n"   // true
+              << "search(5) = " << sl.search(5) << "\n";  // false
+    return 0;
+}
 ```
 
 ---
@@ -515,6 +620,7 @@ struct SkipList {
 **自实现（教学版）**：
 
 ```cpp
+#include <iostream>
 #include <vector>
 #include <string>
 #include <functional>
@@ -533,11 +639,29 @@ struct BloomFilter {
 
     bool test(const std::string& s) const {
         for (auto& fn : hashFns) {
-            if (!bits[fn(s) % bits.size()]) return false;
+            if (!bits[fn(s) % bits.size()]) return false;   // 有一位为 0 → 一定不存在
         }
-        return true;
+        return true;                                        // 全 1 → 可能存在
     }
 };
+
+int main() {
+    // 两个不同的哈希函数（教学用；生产用不同 seed 的 murmur/xxhash）
+    std::vector<std::function<size_t(const std::string&)>> fns = {
+        [](const std::string& s) { return std::hash<std::string>{}(s); },
+        [](const std::string& s) {                          // FNV-1a
+            size_t h = 1469598103934665603ULL;
+            for (char c : s) { h ^= (size_t)(unsigned char)c; h *= 1099511628211ULL; }
+            return h;
+        }
+    };
+    BloomFilter bf(1000, fns);
+    bf.add("hello");
+    std::cout << std::boolalpha
+              << "test(hello) = " << bf.test("hello") << "\n"   // true（一定被加过）
+              << "test(world) = " << bf.test("world") << "\n";  // 多半 false（一定不存在，除非碰撞）
+    return 0;
+}
 ```
 
 ---
@@ -569,36 +693,31 @@ struct BloomFilter {
 ### std::unordered_map 注意事项
 
 ```cpp
+#include <iostream>
 #include <unordered_map>
-#include <shared_mutex>
 #include <string>
 
-// 1. 并发读写：std::unordered_map 非线程安全，需加锁
-std::unordered_map<std::string, int> m;
-std::shared_mutex mu;
-// 读：
-{
-    std::shared_lock lock(mu);
-    auto it = m.find("key");  // 安全读
+int main() {
+    std::unordered_map<std::string, int> m;
+    m.reserve(16);                 // 预分配桶，减少 rehash（4. 预分配减少 rehash）
+
+    m["a"] = 1;
+    m["b"] = 2;
+    m["a"]++;                      // 已存在则更新
+
+    // 查找：先判断存在再取值（operator[] 会插入默认值，只读用 find/count）
+    auto it = m.find("a");
+    if (it != m.end())
+        std::cout << "a = " << it->second << "\n";     // a = 2
+    std::cout << "count(c) = " << m.count("c") << "\n"; // 0（不存在）
+
+    // 2. 遍历顺序不保证（哈希桶顺序，不同实现/rehash 后都可能变）
+    for (auto& kv : m) std::cout << kv.first << ":" << kv.second << " ";
+    std::cout << "\n";
+    // 1. 并发：std::unordered_map 非线程安全，多线程需 std::shared_mutex
+    //    （读 std::shared_lock、写 std::unique_lock）
+    return 0;
 }
-// 写：
-{
-    std::unique_lock lock(mu);
-    m["key"] = 42;
-}
-
-// 2. 遍历顺序不保证（哈希桶顺序，不同实现可能不同）
-for (auto& [k, v] : m) { /* 顺序不确定 */ }
-
-// 3. 默认构造的 unordered_map 可直接使用（不存在 nil map 问题）
-std::unordered_map<std::string, int> m2;  // 合法，可直接插入
-m2["k"] = 1;  // OK
-
-// 4. 预分配减少 rehash（reserve 指定桶数量）
-std::unordered_map<std::string, int> m3;
-m3.reserve(expectedSize);  // 预分配，减少扩容开销
-// 也可在构造时指定：
-std::unordered_map<std::string, int> m4(expectedSize);
 ```
 
 ---
