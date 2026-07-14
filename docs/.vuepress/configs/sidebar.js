@@ -29,7 +29,7 @@ export const sidebar = {
   '/game-infra/': [
     {
       text: '接入与通信',
-      children: ['/game-infra/README.md', '/game-infra/tconnd.md', '/game-infra/tbus.md'],
+      children: ['/game-infra/README.md', '/game-infra/tconnd.md', '/game-infra/tbus.md', '/game-infra/lockstep.md'],
     },
     {
       text: '网络与服务网格',
