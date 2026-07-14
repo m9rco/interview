@@ -115,6 +115,7 @@ export const sidebar = {
       text: '通用后台基础（跨域）',
       children: [
         '/common/concurrency.md',
+        '/common/os-zerocopy.md',
         '/common/go-gotchas.md',
         '/common/cpp11-gotchas.md',
         '/common/cpp20-gotchas.md',
@@ -126,6 +127,9 @@ export const sidebar = {
         '/common/sorting.md',
         '/common/mysql-innodb.md',
         '/common/redis.md',
+        '/common/message-queue.md',
+        '/common/distributed-transaction.md',
+        '/common/http-tls-rpc.md',
       ],
     },
   ],
