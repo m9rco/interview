@@ -1,6 +1,6 @@
 # 常见数据结构
 
-> 覆盖后台面试高频考点：链表、栈与队列、树族（BST/AVL/红黑树）、堆、前缀树（Trie）、跳表、布隆过滤器、哈希表。每种结构：原理 → 复杂度 → 典型应用 → 代码示例（Go）。
+> 覆盖后台面试高频考点：链表、栈与队列、树族（BST/AVL/红黑树）、堆、前缀树（Trie）、跳表、布隆过滤器、哈希表。每种结构：原理 → 复杂度 → 典型应用 → 代码示例（C++）。
 
 ---
 
@@ -33,35 +33,49 @@
 
 ### 代码示例
 
-```go
-type Node struct {
-    Val  int
-    Next *Node
-}
+```cpp
+#include <unordered_map>
+
+struct Node {
+    int val;
+    Node* next;
+    Node(int v) : val(v), next(nullptr) {}
+};
 
 // 反转链表（迭代）
-func reverseList(head *Node) *Node {
-    var prev *Node
-    cur := head
-    for cur != nil {
-        next := cur.Next
-        cur.Next = prev
-        prev = cur
-        cur = next
+Node* reverseList(Node* head) {
+    Node* prev = nullptr;
+    Node* cur = head;
+    while (cur != nullptr) {
+        Node* next = cur->next;
+        cur->next = prev;
+        prev = cur;
+        cur = next;
     }
-    return prev
+    return prev;
 }
 
-// LRU Cache 核心结构（双向链表 + map）
-type LRUCache struct {
-    cap        int
-    cache      map[int]*DNode
-    head, tail *DNode
-}
-type DNode struct {
-    key, val   int
-    prev, next *DNode
-}
+// LRU Cache 核心结构（双向链表 + unordered_map）
+struct DNode {
+    int key, val;
+    DNode* prev;
+    DNode* next;
+    DNode(int k, int v) : key(k), val(v), prev(nullptr), next(nullptr) {}
+};
+
+struct LRUCache {
+    int cap;
+    std::unordered_map<int, DNode*> cache;
+    DNode* head;  // dummy head
+    DNode* tail;  // dummy tail
+
+    LRUCache(int capacity) : cap(capacity) {
+        head = new DNode(0, 0);
+        tail = new DNode(0, 0);
+        head->next = tail;
+        tail->prev = head;
+    }
+};
 ```
 
 ---
@@ -89,21 +103,24 @@ type DNode struct {
 
 ### 代码示例
 
-```go
+```cpp
+#include <vector>
+#include <stack>
+
 // 单调递减栈：求每个元素右侧第一个更大元素
-func nextGreater(nums []int) []int {
-    n := len(nums)
-    res := make([]int, n)
-    stack := []int{}  // 存索引
-    for i := 0; i < n; i++ {
-        for len(stack) > 0 && nums[stack[len(stack)-1]] < nums[i] {
-            idx := stack[len(stack)-1]
-            stack = stack[:len(stack)-1]
-            res[idx] = nums[i]
+std::vector<int> nextGreater(const std::vector<int>& nums) {
+    int n = nums.size();
+    std::vector<int> res(n, 0);
+    std::stack<int> stk;  // 存索引
+    for (int i = 0; i < n; i++) {
+        while (!stk.empty() && nums[stk.top()] < nums[i]) {
+            int idx = stk.top();
+            stk.pop();
+            res[idx] = nums[i];
         }
-        stack = append(stack, i)
+        stk.push(i);
     }
-    return res
+    return res;
 }
 ```
 
@@ -129,40 +146,42 @@ func nextGreater(nums []int) []int {
 
 ### 代码示例
 
-```go
-type TreeNode struct {
-    Val         int
-    Left, Right *TreeNode
-}
+```cpp
+#include <vector>
+#include <stack>
 
-func insert(root *TreeNode, val int) *TreeNode {
-    if root == nil {
-        return &TreeNode{Val: val}
-    }
-    if val < root.Val {
-        root.Left = insert(root.Left, val)
-    } else {
-        root.Right = insert(root.Right, val)
-    }
-    return root
+struct TreeNode {
+    int val;
+    TreeNode* left;
+    TreeNode* right;
+    TreeNode(int v) : val(v), left(nullptr), right(nullptr) {}
+};
+
+TreeNode* insert(TreeNode* root, int val) {
+    if (root == nullptr) return new TreeNode(val);
+    if (val < root->val)
+        root->left = insert(root->left, val);
+    else
+        root->right = insert(root->right, val);
+    return root;
 }
 
 // 中序遍历（迭代）
-func inorder(root *TreeNode) []int {
-    var res []int
-    stack := []*TreeNode{}
-    cur := root
-    for cur != nil || len(stack) > 0 {
-        for cur != nil {
-            stack = append(stack, cur)
-            cur = cur.Left
+std::vector<int> inorder(TreeNode* root) {
+    std::vector<int> res;
+    std::stack<TreeNode*> stk;
+    TreeNode* cur = root;
+    while (cur != nullptr || !stk.empty()) {
+        while (cur != nullptr) {
+            stk.push(cur);
+            cur = cur->left;
         }
-        cur = stack[len(stack)-1]
-        stack = stack[:len(stack)-1]
-        res = append(res, cur.Val)
-        cur = cur.Right
+        cur = stk.top();
+        stk.pop();
+        res.push_back(cur->val);
+        cur = cur->right;
     }
-    return res
+    return res;
 }
 ```
 
@@ -233,30 +252,26 @@ func inorder(root *TreeNode) []int {
 
 ### 代码示例
 
-```go
-import "container/heap"
+```cpp
+#include <vector>
+#include <queue>
 
-// Top K 最大元素：用最小堆维护 k 个
-type MinHeap []int
-func (h MinHeap) Len() int           { return len(h) }
-func (h MinHeap) Less(i, j int) bool { return h[i] < h[j] }
-func (h MinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *MinHeap) Push(x any)        { *h = append(*h, x.(int)) }
-func (h *MinHeap) Pop() any {
-    old := *h; n := len(old)
-    x := old[n-1]; *h = old[:n-1]; return x
-}
-
-func topK(nums []int, k int) []int {
-    h := &MinHeap{}
-    heap.Init(h)
-    for _, v := range nums {
-        heap.Push(h, v)
-        if h.Len() > k {
-            heap.Pop(h)
+// Top K 最大元素：用最小堆（priority_queue 默认最大堆，greater<int> 变最小堆）维护 k 个
+std::vector<int> topK(const std::vector<int>& nums, int k) {
+    // min-heap: 堆顶是最小元素
+    std::priority_queue<int, std::vector<int>, std::greater<int>> minHeap;
+    for (int v : nums) {
+        minHeap.push(v);
+        if ((int)minHeap.size() > k) {
+            minHeap.pop();  // 弹出最小的，保留最大的 k 个
         }
     }
-    return []int(*h)
+    std::vector<int> res;
+    while (!minHeap.empty()) {
+        res.push_back(minHeap.top());
+        minHeap.pop();
+    }
+    return res;  // 返回 Top K 最大元素（升序）
 }
 ```
 
@@ -288,47 +303,51 @@ func topK(nums []int, k int) []int {
 
 ### 代码示例
 
-```go
-type TrieNode struct {
-    children [26]*TrieNode
-    isEnd    bool
-}
+```cpp
+#include <string>
+#include <array>
 
-type Trie struct{ root *TrieNode }
+struct TrieNode {
+    std::array<TrieNode*, 26> children{};
+    bool isEnd = false;
+    TrieNode() { children.fill(nullptr); }
+};
 
-func NewTrie() *Trie { return &Trie{root: &TrieNode{}} }
+struct Trie {
+    TrieNode* root;
+    Trie() : root(new TrieNode()) {}
 
-func (t *Trie) Insert(word string) {
-    cur := t.root
-    for _, ch := range word {
-        idx := ch - 'a'
-        if cur.children[idx] == nil {
-            cur.children[idx] = &TrieNode{}
+    void insert(const std::string& word) {
+        TrieNode* cur = root;
+        for (char ch : word) {
+            int idx = ch - 'a';
+            if (cur->children[idx] == nullptr)
+                cur->children[idx] = new TrieNode();
+            cur = cur->children[idx];
         }
-        cur = cur.children[idx]
+        cur->isEnd = true;
     }
-    cur.isEnd = true
-}
 
-func (t *Trie) Search(word string) bool {
-    cur := t.root
-    for _, ch := range word {
-        idx := ch - 'a'
-        if cur.children[idx] == nil { return false }
-        cur = cur.children[idx]
+    bool search(const std::string& word) {
+        TrieNode* cur = root;
+        for (char ch : word) {
+            int idx = ch - 'a';
+            if (cur->children[idx] == nullptr) return false;
+            cur = cur->children[idx];
+        }
+        return cur->isEnd;
     }
-    return cur.isEnd
-}
 
-func (t *Trie) StartsWith(prefix string) bool {
-    cur := t.root
-    for _, ch := range prefix {
-        idx := ch - 'a'
-        if cur.children[idx] == nil { return false }
-        cur = cur.children[idx]
+    bool startsWith(const std::string& prefix) {
+        TrieNode* cur = root;
+        for (char ch : prefix) {
+            int idx = ch - 'a';
+            if (cur->children[idx] == nullptr) return false;
+            cur = cur->children[idx];
+        }
+        return true;
     }
-    return true
-}
+};
 ```
 
 ---
@@ -361,38 +380,44 @@ func (t *Trie) StartsWith(prefix string) bool {
 
 ### 代码示例（简化版）
 
-```go
-const maxLevel = 16
-const p = 0.5
+```cpp
+#include <cstdlib>
+#include <array>
 
-type SkipNode struct {
-    val     int
-    forward [maxLevel]*SkipNode
-}
+constexpr int MAX_LEVEL = 16;
+constexpr double P = 0.5;
 
-type SkipList struct {
-    head  *SkipNode
-    level int
-}
+struct SkipNode {
+    int val;
+    std::array<SkipNode*, MAX_LEVEL> forward{};
+    SkipNode(int v) : val(v) { forward.fill(nullptr); }
+};
 
-func randomLevel() int {
-    lv := 1
-    for lv < maxLevel && rand.Float64() < p {
-        lv++
+struct SkipList {
+    SkipNode* head;
+    int level;
+
+    SkipList() : level(1) {
+        head = new SkipNode(INT_MIN);  // 哨兵节点
     }
-    return lv
-}
 
-func (sl *SkipList) Search(val int) bool {
-    cur := sl.head
-    for i := sl.level - 1; i >= 0; i-- {
-        for cur.forward[i] != nil && cur.forward[i].val < val {
-            cur = cur.forward[i]
+    static int randomLevel() {
+        int lv = 1;
+        while (lv < MAX_LEVEL && (double)rand() / RAND_MAX < P)
+            lv++;
+        return lv;
+    }
+
+    bool search(int val) const {
+        SkipNode* cur = head;
+        for (int i = level - 1; i >= 0; i--) {
+            while (cur->forward[i] != nullptr && cur->forward[i]->val < val)
+                cur = cur->forward[i];
         }
+        cur = cur->forward[0];
+        return cur != nullptr && cur->val == val;
     }
-    cur = cur.forward[0]
-    return cur != nil && cur.val == val
-}
+};
 ```
 
 ---
@@ -426,42 +451,41 @@ func (sl *SkipList) Search(val int) bool {
 
 ### 代码示例
 
-```go
-import (
-    "github.com/bits-and-blooms/bloom/v3"
-)
-
-// 预期 1M 元素，假阳率 0.1%
-filter := bloom.NewWithEstimates(1_000_000, 0.001)
-
-filter.AddString("hello")
-filter.AddString("world")
-
-fmt.Println(filter.TestString("hello"))  // true（一定存在）
-fmt.Println(filter.TestString("go"))     // false（一定不存在）
-fmt.Println(filter.TestString("ello"))   // false 或 true（误判）
-```
+// C++ 外部库：可使用 boost::bloom_filters（Boost.BloomFilter）或 Redis 内置布隆过滤器模块。
+// 示例（伪代码，需引入 boost 库）：
+// ```cpp
+// #include <boost/bloom_filter/basic_bloom_filter.hpp>
+// boost::bloom_filters::basic_bloom_filter<std::string, 1000000> filter;
+// filter.insert("hello");
+// bool exists = filter.probably_contains("hello");  // true（可能存在）
+// ```
 
 **自实现（教学版）**：
 
-```go
-type BloomFilter struct {
-    bits    []bool
-    hashFns []func(string) int
-}
+```cpp
+#include <vector>
+#include <string>
+#include <functional>
 
-func (bf *BloomFilter) Add(s string) {
-    for _, fn := range bf.hashFns {
-        bf.bits[fn(s)%len(bf.bits)] = true
-    }
-}
+struct BloomFilter {
+    std::vector<bool> bits;
+    std::vector<std::function<size_t(const std::string&)>> hashFns;
 
-func (bf *BloomFilter) Test(s string) bool {
-    for _, fn := range bf.hashFns {
-        if !bf.bits[fn(s)%len(bf.bits)] { return false }
+    BloomFilter(int m, std::vector<std::function<size_t(const std::string&)>> fns)
+        : bits(m, false), hashFns(std::move(fns)) {}
+
+    void add(const std::string& s) {
+        for (auto& fn : hashFns)
+            bits[fn(s) % bits.size()] = true;
     }
-    return true
-}
+
+    bool test(const std::string& s) const {
+        for (auto& fn : hashFns) {
+            if (!bits[fn(s) % bits.size()]) return false;
+        }
+        return true;
+    }
+};
 ```
 
 ---
@@ -490,23 +514,39 @@ func (bf *BloomFilter) Test(s string) bool {
 - 计数器（词频统计）
 - 两数之和、字母异位词
 
-### Go map 注意事项
+### std::unordered_map 注意事项
 
-```go
-// 1. 并发读写 → sync.Map 或 RWMutex
-var mu sync.RWMutex
-mu.RLock(); v := m[k]; mu.RUnlock()
+```cpp
+#include <unordered_map>
+#include <shared_mutex>
+#include <string>
 
-// 2. 遍历顺序随机（有意随机化，防止依赖顺序）
-for k, v := range m { ... }  // 顺序不保证
+// 1. 并发读写：std::unordered_map 非线程安全，需加锁
+std::unordered_map<std::string, int> m;
+std::shared_mutex mu;
+// 读：
+{
+    std::shared_lock lock(mu);
+    auto it = m.find("key");  // 安全读
+}
+// 写：
+{
+    std::unique_lock lock(mu);
+    m["key"] = 42;
+}
 
-// 3. nil map 可读不可写
-var m map[string]int
-m["k"] = 1  // panic: assignment to entry in nil map
-m = make(map[string]int)  // 初始化
+// 2. 遍历顺序不保证（哈希桶顺序，不同实现可能不同）
+for (auto& [k, v] : m) { /* 顺序不确定 */ }
 
-// 4. 预分配减少 rehash
-m := make(map[string]int, expectedSize)
+// 3. 默认构造的 unordered_map 可直接使用（不存在 nil map 问题）
+std::unordered_map<std::string, int> m2;  // 合法，可直接插入
+m2["k"] = 1;  // OK
+
+// 4. 预分配减少 rehash（reserve 指定桶数量）
+std::unordered_map<std::string, int> m3;
+m3.reserve(expectedSize);  // 预分配，减少扩容开销
+// 也可在构造时指定：
+std::unordered_map<std::string, int> m4(expectedSize);
 ```
 
 ---
