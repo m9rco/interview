@@ -26,7 +26,7 @@ features:
     details: 不只讲"怎么做"，更讲"为什么这么做"以及"为什么同类的其他选择在这个场景不行"。
   - title: 代码 + 流程图
     details: 重点专题配可运行/贴近真实的代码与 Mermaid 流程图，便于随时重新拾起。
-footer: 面试复习用 · 由 VuePress 生成 · 发布于 GitHub Pages / interview.0x06.cn
+footer: 面试复习用 · 由 VuePress 生成 · 发布于 GitHub Pages
 ---
 
 ## 这份复习中心是什么
@@ -42,7 +42,7 @@ footer: 面试复习用 · 由 VuePress 生成 · 发布于 GitHub Pages / inter
 ## 四大域
 
 - [互联网 / 智能硬件后台](/internet/) —— php-fpm+Nginx、MQTT/IoT、前端工程、Elixir、DNS 攻防与清洗、LVS/epoll、滑动窗口
-- [游戏基础架构](/game-infra/) —— tconnd/tbus、CNI/服务网格、有状态迁移恢复、eBPF、一致性哈希、协程、秒杀、限流熔断、Raft/Gossip、LLVM
+- [游戏基础架构](/game-infra/) —— 接入网关/消息总线、CNI/服务网格、有状态迁移恢复、eBPF、一致性哈希、协程、秒杀、限流熔断、Raft/Gossip、LLVM
 - [游戏业务实现](/game-biz/) —— 多模板活动框架、幂等性设计、Redis 房间推荐、游戏 vs 互联网本质差异
 - [AI / 大模型](/ai-llm/) —— 大模型核心原理、推理与微调优化、RAG 检索增强（含数据清理）、Agent 开发
 - [通用后台基础](/common/concurrency.md) —— 并发、Go、设计模式、GC、算法 & 常见数据结构、排序、MySQL、Redis

@@ -141,7 +141,7 @@ sidecar 模式里，一次 A→B 调用要经过 **App A → Envoy A → Envoy B
 :::
 
 ::: danger 游戏帧内通信别硬套 Mesh
-无论 sidecar 还是 eBPF，通用 Mesh 面向**微服务治理**，不是为游戏**帧内多跳低延迟同机调用**设计。同机高频通信仍应走 [TBus 共享内存](/game-infra/tbus.md)；自研游戏网格更倾向 [去中心化 + 降连接数](/game-infra/mesh-central-vs-decentral.md)。Mesh 的价值在东西向治理/可观测，不在替代 IPC。
+无论 sidecar 还是 eBPF，通用 Mesh 面向**微服务治理**，不是为游戏**帧内多跳低延迟同机调用**设计。同机高频通信仍应走 [消息总线共享内存](/game-infra/message-bus.md)；自研游戏网格更倾向 [去中心化 + 降连接数](/game-infra/mesh-central-vs-decentral.md)。Mesh 的价值在东西向治理/可观测，不在替代 IPC。
 :::
 
 ## 沉淀结论
@@ -153,7 +153,7 @@ sidecar 模式里，一次 A→B 调用要经过 **App A → Envoy A → Envoy B
 - eBPF 之所以省，是流量到内核就地处理，不必反复上送用户态代理——见 [eBPF](/game-infra/ebpf.md)。
 :::
 
-**相关专题**：[eBPF 原理与落地](/game-infra/ebpf.md) · [CNI 与 K8s 网络插件](/game-infra/cni-plugins.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md) · [自研 Mesh × K8s](/game-infra/xmesh-k8s.md)
+**相关专题**：[eBPF 原理与落地](/game-infra/ebpf.md) · [CNI 与 K8s 网络插件](/game-infra/cni-plugins.md) · [中心化 vs 去中心化网格](/game-infra/mesh-central-vs-decentral.md) · [自研 Mesh × K8s](/game-infra/self-mesh-k8s.md)
 
 ## 内容来源
 

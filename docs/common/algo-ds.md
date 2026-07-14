@@ -63,7 +63,7 @@ int32_t JumpConsistentHash(uint64_t key, int32_t num_buckets) {
 
 **核心思想**：从 bucket 0 开始，每次概率 `(b+1)/(j+1)` 决定"是否留在当前 bucket"；不然跳到 j。**期望迭代次数 O(log N)**、**内存 0**、**分布均匀**。
 
-**限制**：bucket 编号必须 **0 ~ N-1 连续整数**——扩容只能追加、缩容必须是从尾部——不适合"节点 IP 无序删除"场景（但自研 Mesh 用 TBUSID 数字就是这个前提）。
+**限制**：bucket 编号必须 **0 ~ N-1 连续整数**——扩容只能追加、缩容必须是从尾部——不适合"节点 IP 无序删除"场景（但自研 Mesh 用数字实例 ID 就是这个前提）。
 
 ### Maglev Hashing（Google 2016 SIGCOMM）
 

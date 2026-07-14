@@ -198,7 +198,7 @@ flowchart LR
 - **Kafka Broker**：Reactor（网络层 SocketServer）+ 队列 + 磁盘顺序写；Producer/Consumer 都是 pub/sub 上层协议
 - **Erlang / Elixir 服务**：Actor 全套；BEAM VM 每进程独立堆、消息拷贝、抢占式调度、supervisor tree
 - **Node.js**：单线程 event loop + libuv 线程池（DNS/文件 IO）；IO 密集完美，CPU 密集要 worker_threads
-- **tRPC-Go / gRPC-Go**：CSP——每请求一 goroutine，channel 做请求上下文传递；tRPC-Cpp 用 fiber + Reactor
+- **gRPC-Go / 自研 RPC 框架（Go）**：CSP——每请求一 goroutine，channel 做请求上下文传递；自研 RPC 的 C++ 实现用 fiber + Reactor
 
 ### 为什么游戏用 Actor / 单线程 tick，不用协程池？
 
@@ -295,9 +295,9 @@ flowchart LR
 **别只答概念**，一定要把模型和你实际做过的系统绑起来讲：
 
 - 「我做过的**游戏世界服是 Actor 模型 + 单 tick 循环**——每玩家一个 actor 独占状态，跨玩家操作走消息，避开锁；瓶颈在 CPU 而不是 IO」
-- 「**业务代理 platpxy 是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」
-- 「**自研 Mesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过 TBUS/共享内存传递给业务进程」
-- 「**paypxy 支付回调是 Pipeline + 幂等**——米大师 → 验签 → 幂等四道闸 → RPC 转 mallsvrd 发货，每级失败都能重放」
+- 「**平台代理是主从 Reactor**——libevent 收包，每连接绑一个 subReactor 线程，业务处理在同线程避免上下文切换」
+- 「**自研 Mesh 是 Half-Sync/Half-Async**——网络层用 epoll 事件驱动收 UDP 包，路由决策和转发在同一 event loop（因为决策极快），跨机通道消息通过消息总线/共享内存传递给业务进程」
+- 「**支付代理支付回调是 Pipeline + 幂等**——统一计费平台 → 验签 → 幂等四道闸 → RPC 转商城服务发货，每级失败都能重放」
 
 ### 模型组合而非二选一
 

@@ -29,7 +29,7 @@ export const sidebar = {
   '/game-infra/': [
     {
       text: '接入与通信',
-      children: ['/game-infra/README.md', '/game-infra/tconnd.md', '/game-infra/tbus.md', '/game-infra/lockstep.md'],
+      children: ['/game-infra/README.md', '/game-infra/access-gateway.md', '/game-infra/message-bus.md', '/game-infra/lockstep.md'],
     },
     {
       text: '网络与服务网格',
@@ -38,14 +38,14 @@ export const sidebar = {
         '/game-infra/mesh-istio-cilium.md',
         '/game-infra/mesh-central-vs-decentral.md',
         '/game-infra/ebpf.md',
-        '/game-infra/xmesh-k8s.md',
+        '/game-infra/self-mesh-k8s.md',
         '/game-infra/k8s-network.md',
       ],
     },
     {
       text: '有状态服务',
       children: [
-        '/game-infra/tcaplusdb.md',
+        '/game-infra/distributed-kv.md',
         '/game-infra/stateful-migration.md',
         '/game-infra/stateful-recovery.md',
         '/game-infra/config-hot-reload.md',

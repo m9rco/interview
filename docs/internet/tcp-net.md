@@ -138,7 +138,7 @@ sequenceDiagram
 **2. 大量 TIME_WAIT**：
 - 短连接场景高并发时端口耗尽
 - **不要开 `tcp_tw_recycle`**（Linux 4.12 已删，NAT 后翻车）；`tcp_tw_reuse` 相对安全（仅客户端）
-- 治本：**长连接 + 连接池**（业务代理模块 platpxy 12000 上限就是这么设计）
+- 治本：**长连接 + 连接池**（平台代理模块 12000 上限就是这么设计）
 
 **3. 大量 CLOSE_WAIT**：
 - **应用没 close(fd) bug**——被动方收到 FIN 后忘关自己的写端

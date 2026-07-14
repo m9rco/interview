@@ -9,13 +9,13 @@ import { markdownMathPlugin } from '@vuepress/plugin-markdown-math'
 import { navbar } from './configs/navbar.js'
 import { sidebar } from './configs/sidebar.js'
 
-// GitHub Pages 项目页在 /interview/ 子路径；COS 绑定 interview.0x06.cn 走根路径。
+// GitHub Pages 项目页在 /interview/ 子路径；COS 绑定自定义域名走根路径。
 // 通过 DEPLOY_TARGET 环境变量在构建时切换 base，避免资源 404。
 const DEPLOY_TARGET = process.env.DEPLOY_TARGET || 'pages'
 const base = DEPLOY_TARGET === 'cos' ? '/' : '/interview/'
 // hostname 供默认主题内置的 SEO(og 标签) 与 sitemap 生成绝对 URL；随部署目标切换。
 // 设了 hostname，主题就会自动启用 @vuepress/plugin-seo 与 @vuepress/plugin-sitemap。
-const hostname = DEPLOY_TARGET === 'cos' ? 'https://interview.0x06.cn' : 'https://m9rco.github.io'
+const hostname = DEPLOY_TARGET === 'cos' ? (process.env.COS_HOSTNAME || 'https://example.com') : 'https://m9rco.github.io'
 
 export default defineUserConfig({
   base,

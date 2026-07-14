@@ -144,4 +144,4 @@ flowchart TD
 
 ## 内容来源
 
-迁移自 guide/theme-rate-limit（综合整理）。原始出处：综合整理 Sentinel、Nginx、腾讯游戏后台经验，具体实现请以官方文档为准（2026-07）。
+迁移自 guide/theme-rate-limit（综合整理）。原始出处：综合整理 Sentinel、Nginx、游戏后台经验，具体实现请以官方文档为准（2026-07）。
