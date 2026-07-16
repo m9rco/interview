@@ -8,6 +8,10 @@ title: TCP 网络编程
 **握手 3 次**是"确认双方都能收发"最少次数；**挥手 4 次**因为**关闭是半双工的**——一方 FIN 只关自己方向，对方还能发。**TIME_WAIT 2MSL** 是为了旧包全部消散 + 让最后一个 ACK 有机会重传。**TCP 是字节流不是消息流** → 应用层必须自己定分包协议。
 :::
 
+::: tip 一句话结论
+TCP 靠三次握手建连、字节流传输、epoll 撑高并发、拥塞控制保可靠。
+:::
+
 ## 场景问题
 
 ### 三次握手 / 四次挥手
@@ -163,6 +167,55 @@ sequenceDiagram
 - 连接池：**最小空闲 + 最大空闲 + 超时回收**
 - 优雅关闭：`shutdown(WR) → 读残余数据 → close`；避免 RST 打断对方
 - 指标必埋：**连接数、accept 队列长度、read/write 错误率、RTT、复用率**
+
+### 记忆口诀
+
+**连接管理**：三次握手 / 四次挥手 / TIME_WAIT 2MSL
+**高并发**：epoll 红黑树 / ET 非阻塞 / 主从 Reactor
+**可靠传输**：字节流分包 / 拥塞控制 / 应用层心跳
+**避坑**：粘包长度前缀 / CLOSE_WAIT 忘 close / 惊群 REUSEPORT
+
+## 自测：合上资料能说清楚吗？
+
+为什么握手要 3 次而不是 2 次，挥手却要 4 次？
+
+<details><summary>参考答案</summary>
+
+**3 次**是确认双方收发能力的最少次数：2 次只能确认一个方向。**4 次**是因为**关闭半双工**——被动方收到 FIN 先回 **ACK**，处理完剩余数据后才发自己的 FIN，两步不能合并。
+
+</details>
+
+线上出现大量 `CLOSE_WAIT` 和大量 `TIME_WAIT`，分别说明什么、怎么治？
+
+<details><summary>参考答案</summary>
+
+**CLOSE_WAIT** 堆积＝**应用忘了 `close(fd)`**（被动方 bug），需查持有 fd 的进程。**TIME_WAIT** 堆积＝短连接高并发端口耗尽，治本靠**长连接+连接池**，客户端可开 `tcp_tw_reuse`，**别开** `tcp_tw_recycle`。
+
+</details>
+
+epoll 的 LT 和 ET 有什么区别，ET 使用时要注意什么？
+
+<details><summary>参考答案</summary>
+
+**LT（水平触发）**只要 fd 还有数据就一直通知，容错友好（默认）。**ET（边沿触发）**只在状态**变化时**通知一次，必须**一次性 read 到 `EAGAIN`**，且**配非阻塞 fd**，否则会漏数据或阻塞。
+
+</details>
+
+TCP 是字节流带来什么问题，应用层如何解决？
+
+<details><summary>参考答案</summary>
+
+**粘包/半包**：TCP 不保留消息边界，一次 read 可能读到半个或多个包。应用层需**自定义分包**：定长 / 分隔符 / **长度前缀**（最常用，4 字节长度+包体），并**校验 length 上限**防内存爆炸。
+
+</details>
+
+Reactor 和 Proactor 模式的核心区别是什么？
+
+<details><summary>参考答案</summary>
+
+**Reactor** 是**同步 I/O + 事件通知**：epoll 通知 fd 就绪后，**由应用自己 read/write**（Netty/Nginx）。**Proactor** 是**异步 I/O**：应用注册 buffer，**内核完成 read/write 后才通知**（Windows IOCP、Linux io_uring）。
+
+</details>
 
 ## 内容来源
 

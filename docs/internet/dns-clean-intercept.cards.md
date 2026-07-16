@@ -1,0 +1,40 @@
+# dns-clean-intercept — 闪卡
+
+> XDP 挡洪水、CoreDNS 插件链做策略、应用层兜底——分层协同各司其职。
+
+## 记忆口诀
+
+**三层**：XDP 挡洪水 / CoreDNS 做策略 / hosts 兜底
+**内核快**：免拷贝 / sk_buff 前决策 / map O(1) / NIC offload
+**CoreDNS**：单二进制 / 插件链 / Corefile 编排 / prometheus 内建
+**取代理由**：配置即插件 / 观测即内建 / Go 同源
+
+## Card 1
+
+**Q**: DNS 拦截的三个层次分别在哪里、各自擅长与局限是什么？
+
+**A**: 应用层解析器（进程/本机）：灵活、hosts 覆盖，但只影响本机无集中管控；CoreDNS 插件链（用户态）：复杂策略、可观测、可编排，但用户态拷贝吞吐上限低；内核态 XDP/eBPF（网卡驱动）：极高 PPS、抗 DDoS，但表达能力弱、调试门槛高。
+
+## Card 2
+
+**Q**: 为什么内核态（XDP）拦截 DNS 比用户态快？请说出关键机制。
+
+**A**: 四点：① 绕过用户态拷贝（不经 socket、无 copy_to_user）；② 早期丢包——在 `sk_buff` 分配、协议栈遍历之前决策，省最贵的内存分配与栈处理；③ map 查表 O(1)；④ 可 NIC offload。因此清洗洪水每核可达千万 PPS 级。
+
+## Card 3
+
+**Q**: CoreDNS 的插件链是怎么工作的？其顺序由什么决定？
+
+**A**: 一次查询像流水线依次经过 Corefile 声明的插件，每个插件可处理返回或透传下一个。链序在编译期由 `plugin.cfg` 固定优先级决定，不是 Corefile 书写顺序。常用：`acl/hosts/rewrite/kubernetes/cache/forward/template`。
+
+## Card 4
+
+**Q**: 对比 CoreDNS 与 kube-dns / dnsmasq，为什么 K8s 选 CoreDNS 作默认集群 DNS？
+
+**A**: kube-dns 是 dnsmasq+kube-dns+sidecar 三容器拼装，职责分散、可观测差；dnsmasq 面向家用、扁平配置无插件、无原生 Service 发现。CoreDNS 单二进制+插件化，加能力只需启用一插件，原生 Prometheus 指标，Go 生态与 K8s 同源——「配置即插件，观测即内建」。
+
+## Card 5
+
+**Q**: 一条完整的 DNS 清洗策略链应包含哪些环节？
+
+**A**: 骨架：来源 ACL（非法源 REFUSED）→ 黑名单 sinkhole/NXDOMAIN（hosts/RPZ）→ 白名单/内网权威（kubernetes Service 解析）→ 上游 forward + cache + 污染纠正（交叉验证不一致则从 DoH/DoT 可信上游重取）。

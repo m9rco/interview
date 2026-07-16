@@ -128,6 +128,56 @@ SELECT * FROM t WHERE name LIKE '张%' AND age = 20;
 - **MVCC = undo 版本链 + ReadView 可见性判定**；快照读不加锁、当前读加锁
 - **RC 每次快照读新建 ReadView，RR 首次生成后复用**；RR 靠 MVCC + Next-Key Lock 压制幻读
 
+### 记忆口诀
+
+- **索引本质**：B+树矮胖 / 叶子有序链表 / 树高≈IO次数
+- **回表三件套**：聚簇存整行 / 二级存主键 / 覆盖索引免回表
+- **命中规则**：最左前缀 / 范围列后失效 / ICP下推减回表
+- **MVCC**：undo版本链 / ReadView可见性 / 快照读不加锁
+- **隔离**：RC每次新建视图 / RR首次复用 / Next-Key Lock堵幻读
+
 ## 内容来源
 
 关键点整理自 [lifei6671/interview-go](https://github.com/lifei6671/interview-go)（`mysql/mysql-mvcc.md`、`mysql/mysql-index-b-plus.md`、`mysql/mysql-interview.md` 及 `mysql/0001-0002.md` 索引下推/失效），结合 InnoDB 官方文档重写为五段式。请以官方文档为准。
+
+## 自测：合上资料能说清楚吗？
+
+1. 为什么 InnoDB 用 B+ 树做索引，而不用 B 树、红黑树或 Hash？请对比这几种结构。
+
+<details><summary>参考答案</summary>
+
+B+ 树**非叶子只存 key+指针**扇出大、树高低（3 层≈2000 万行），**IO 次数≈树高**；**叶子有序双向链表**天然支持范围/排序。B 树节点存数据扇出小树更高；红黑树二叉树高 log₂N 且不利磁盘顺序读；Hash 等值快但**不支持范围、排序、最左前缀**。
+
+</details>
+
+2. 什么是回表？覆盖索引如何避免它？
+
+<details><summary>参考答案</summary>
+
+**二级索引叶子只存索引列+主键**，查非索引列须拿主键再查一次**聚簇索引**取整行，即**回表**。若查询列全在二级索引内（含主键），无需回表，即**覆盖索引**，`EXPLAIN` 显示 `Using index`。
+
+</details>
+
+3. 联合索引 `(a,b,c)` 在 `a=? AND b>? AND c=?` 下如何命中？
+
+<details><summary>参考答案</summary>
+
+a、b 走索引，**c 因 b 是范围列而无法用于索引定位**（遵循最左前缀+范围列后失效）。但在 **ICP** 下 c 仍可在引擎层过滤减少回表。`ORDER BY` 同样遵循最左前缀，否则 `Using filesort`。
+
+</details>
+
+4. MVCC 如何判断某版本对当前事务可见？
+
+<details><summary>参考答案</summary>
+
+沿 **undo 版本链**逐版本比对 `DB_TRX_ID` 与 **ReadView**：小于 `min_trx_id` 已提交**可见**；≥ `max_trx_id` **不可见**沿 `DB_ROLL_PTR` 找旧版本；区间内则看是否在 `m_ids`（活跃事务）中，在则不可见、不在则可见。
+
+</details>
+
+5. RC 与 RR 的快照读有何区别？RR 又如何压制幻读？
+
+<details><summary>参考答案</summary>
+
+**RC 每次快照读都新建 ReadView**故可能不可重复读；**RR 首次快照读生成一次后复用**保证多次读一致。RR 压制幻读：**快照读**靠复用 ReadView 看不到新插入行；**当前读**靠 **Next-Key Lock（记录锁+间隙锁）**锁住区间阻止 INSERT。
+
+</details>

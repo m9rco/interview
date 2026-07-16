@@ -242,6 +242,53 @@ flowchart LR
 
 延伸阅读：[推理与微调优化](/ai-llm/llm-inference-optimization.md) · [RAG 检索增强生成](/ai-llm/rag.md) · [Agent 开发](/ai-llm/agent-dev.md)
 
+### 记忆口诀
+
+- **Self-Attention**：QKV 打分 / softmax 加权 / 任意位置直连 O(1) / 代价 O(n²)
+- **架构选型**：Encoder-only 理解 / Encoder-Decoder 翻译 / Decoder-only 生成大一统
+- **位置编码**：注意力排列不变 / 正弦绝对 / RoPE 相对可外推 / ALiBi 距离偏置
+- **分词计费**：BPE 高频子词 / BBPE 字节永不 OOV / 中文一字多 token
+- **Scale 配比**：Chinchilla / 参数数据等比 / ~20 tokens 每参数
+- **解码采样**：Greedy 确定 / Temperature 随机度 / Top-k 定数 / Top-p 动态截断
+- **对齐三步**：SFT 指令 → RLHF/DPO 偏好 → 系统提示护栏
+
 ## 内容来源
 
 综合整理：Attention Is All You Need（Vaswani 2017）、GPT/LLaMA/Chinchilla 论文、RoPE/ALiBi 论文、Hugging Face 与各家官方文档（2026-07；领域更新快，请以最新论文与官方文档为准）。
+
+## 自测：合上资料能说清楚吗？
+
+1. Transformer 靠什么取代了 RNN/LSTM？付出的代价是什么？
+   <details><summary>参考答案</summary>
+
+用 **Self-Attention** 让任意两位置**直连**（路径 O(1)）且整段**并行**，解决了 RNN 的**串行不可并行**与**长程梯度消失**。代价是注意力的 **O(n²)** 计算/显存开销，成为长上下文优化的战场。
+
+</details>
+
+2. 为什么 Self-Attention 需要额外的位置编码？列举两种主流方案。
+   <details><summary>参考答案</summary>
+
+注意力**排列不变**，打乱顺序输出集合不变，本身"看不见词序"。主流：**RoPE**（旋转编码，天然编码**相对位置**、可外推）、**ALiBi**（按距离加**线性偏置**，短训长推）；原版是**正弦绝对编码**。
+
+</details>
+
+3. 对比 Top-k 与 Top-p（Nucleus）采样的区别，各自特点是什么？
+   <details><summary>参考答案</summary>
+
+**Top-k** 固定候选**个数** k，长尾概率分布不均时可能仍过窄或过宽；**Top-p** 按**累积概率**取达 p 的最小集合，**动态截断**、随分布自适应，是主流默认。二者都在截断长尾、平衡多样性与质量。
+
+</details>
+
+4. 对比"微调"与"RAG"，加入新知识该选哪个？
+   <details><summary>参考答案</summary>
+
+**微调**擅长改**风格/格式/能力**，把知识"焊死"进权重、更新成本高、易遗忘；**RAG** 把知识放外部库检索注入，适合**事实/时效**类知识，可增删溯源。加事实优先 **RAG**，改行为风格用微调。
+
+</details>
+
+5. Chinchilla 修正了此前"堆参数"的什么偏见？给出结论。
+   <details><summary>参考答案</summary>
+
+此前大模型多**参数过大、数据喂不够**。Chinchilla 指出：给定算力预算，**参数 N 与数据 D 应大致等比例增长**（约 **20 tokens/参数**），小而喂饱的模型可反超参数更大者，能力随 N/D/C 呈**幂律**提升。
+
+</details>

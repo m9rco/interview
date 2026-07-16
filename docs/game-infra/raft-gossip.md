@@ -6,6 +6,10 @@ title: Raft 与 Gossip：CP 强一致共识 vs AP 最终一致传播
 
 > 分布式系统里两类需求泾渭分明：**元数据/配置**要强一致（谁是 Leader、当前分片表是什么，读到旧值就出错），用 Raft；**集群成员/故障探测**要高可用且抗故障（哪些节点活着，允许短暂不一致），用 Gossip。前者是 CP，多数派提交、有单点式的 Leader；后者是 AP，无中心、随机传播、O(log N) 轮收敛。选错了，要么强一致的东西被 gossip 弄脏，要么成员发现被 Raft 的单点拖垮。
 
+::: tip 一句话结论
+读到旧值就出错的元数据用 Raft（CP 强一致），大规模成员发现用 Gossip（AP 抗故障），二者配合。
+:::
+
 ## 场景问题
 
 自研游戏网格/集群管理里，有两组性质完全相反的状态：
@@ -188,6 +192,55 @@ Gossip 的收敛是**概率性 O(log N) 轮**而非确定性：fanout=3、几千
 - **选型分界**：读到旧值就出错的 → Raft；允许短暂不一致但要抗故障、大规模的 → Gossip。
 - 一句话：**元数据一致用 Raft，成员发现用 Gossip，二者配合而非二选一。**
 
+### 记忆口诀
+
+**Raft(CP)**：term 任期 / 多数派提交 / 单一 Leader / 元数据·etcd
+**Gossip(AP)**：随机选 peer / O(log N) 收敛 / 无单点 / 成员发现·Serf
+**降误判**：SWIM 间接探测 / incarnation 自我澄清
+**分界**：读旧值出错→Raft；允许短暂不一致要抗故障→Gossip
+
 ## 内容来源
 
 综合整理。参考论文与资料：Ongaro & Ousterhout "In Search of an Understandable Consensus Algorithm (Raft)"（USENIX ATC 2014）及 raft.github.io、Das et al. "SWIM: Scalable Weakly-consistent Infection-style Process Group Membership Protocol"（DSN 2002）、Demers et al. "Epidemic Algorithms for Replicated Database Maintenance"（PODC 1987），以及 etcd/Raft、HashiCorp Serf/Consul memberlist、Redis Cluster、Cassandra gossip 的实现文档。
+
+## 自测：合上资料能说清楚吗？
+
+Raft 靠什么保证任意时刻至多一个 Leader 能提交日志、从而不脑裂？
+
+<details><summary>参考答案</summary>
+
+靠 **term（任期）+ 多数派**。少数派分区即使选出"Leader"也拿不到**多数派选票**、无法 commit 任何日志；分区愈合后它看到**更高 term** 立刻退位为 Follower，未提交日志被覆盖。多数派提交保证已提交的永不丢。
+
+</details>
+
+Gossip 为什么能在几千节点里做到秒级收敛，且没有单点？
+
+<details><summary>参考答案</summary>
+
+每节点**周期随机选 fanout 个 peer** 交换状态，已知节点数每轮近似翻倍，故 **O(log N) 轮**全收敛（fanout=3、几千节点几秒）。完全**去中心**，任一节点挂了不影响传播，每节点流量只 O(fanout)，天然抗故障。
+
+</details>
+
+同样是"哪个节点是主/在线"，为什么分片路由表用 Raft、成员存活视图用 Gossip？（对比）
+
+<details><summary>参考答案</summary>
+
+分片路由表**读到旧值即错**（双主/发错节点），需**线性一致 + 单一提交点**→Raft。成员存活视图**允许晚几秒知道**，但要**大规模、抗故障、无单点、流量不集中**→Gossip。取舍相反，故分而治之。
+
+</details>
+
+用 Raft 做几千节点的成员发现会遇到什么问题？
+
+<details><summary>参考答案</summary>
+
+几千节点全向 **Leader 上报心跳**，Leader **连接数/写入被打爆**；Leader 一挂，**选举期间全局成员视图冻结**。规模（受 Leader 复制吞吐限制，核心组通常 3~7 节点）和可用性都不匹配成员发现的需求。
+
+</details>
+
+SWIM 的"间接探测"和"incarnation 自我澄清"分别解决什么问题？
+
+<details><summary>参考答案</summary>
+
+**间接探测**：直接 ping 无 ack 时，请 k 个其他成员帮 ping，排除**探测方自身网络抖动**导致误判。**incarnation 自我澄清**：被误标 suspect 的节点若还活着，广播**更高 incarnation 的 alive** 反驳，避免一次抖动把好节点判死。
+
+</details>

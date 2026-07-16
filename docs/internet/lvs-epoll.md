@@ -6,6 +6,10 @@ title: LVS 与 epoll
 
 > 四层负载 LVS（内核 IPVS）与用户态事件模型 epoll，是高并发接入层的两块基石。本文讲清 LVS 三种转发模式（尤其 DR 为什么最快）、调度算法、Keepalived 高可用，以及 epoll 为什么碾压 select/poll、LT/ET 与惊群的取舍，并说明 LVS 与七层 Nginx 如何分层配合。
 
+::: tip 一句话结论
+LVS 四层只改 MAC 廉价均分连接，epoll 注册等待分离只返就绪 fd，二者撑起接入层高并发。
+:::
+
 ## 场景问题
 
 一个千万级并发的接入层要同时解决两件事：
@@ -163,6 +167,56 @@ stateDiagram-v2
 5. **LT vs ET**：LT 简单稳妥，ET 高效但必须非阻塞 + 读写到 EAGAIN；惊群用 `EPOLLEXCLUSIVE` 或 `SO_REUSEPORT` 解。
 6. **分层配合**：LVS(四层，均分连接) → Nginx(七层，内容路由/TLS/缓存) → 应用后端，各取所长。
 
+### 记忆口诀
+
+**LVS 三模式**：NAT 都过网关最慢 / DR 只改MAC响应直连最快 / TUN 隧道封装可跨段
+**epoll 两句话**：注册等待分离(红黑树+就绪链表) / 只返就绪fd(消灭全量拷贝遍历)
+**LT vs ET**：LT非空就通知可分次读简单 / ET从无到有一次必须读到EAGAIN且非阻塞
+**惊群解法**：EPOLLEXCLUSIVE只唤醒一个 / SO_REUSEPORT内核哈希分发到各worker
+
 ## 内容来源
 
 综合整理。主要参考方向：Linux Virtual Server 官方文档（IPVS、NAT/DR/TUN 模式与 ipvsadm）、`ipvsadm(8)` 手册、Keepalived 官方文档与 VRRP（RFC 3768/5798）、Linux 内核 `epoll(7)`/`epoll_ctl(2)`/`epoll_wait(2)` man page 与内核 `fs/eventpoll.c` 实现（红黑树 + rdllist）、C10K/C10M 问题综述、Nginx `SO_REUSEPORT`/`EPOLLEXCLUSIVE` 惊群处理文档。
+
+## 自测：合上资料能说清楚吗？
+
+DR 模式为什么比 NAT 快？它对 Real Server 有什么特殊要求？
+
+<details><summary>参考答案</summary>
+
+DR 下 Director **只改目的 MAC**转发入向请求，**响应包由 RS 直连客户端**不经 Director；而下行流量远大于上行，Director 只承担最小的上行部分，吞吐最高。要求：RS 在 **`lo` 绑 VIP** 并设 **`arp_ignore=1`、`arp_announce=2`** 抑制 ARP，且与 Director 同二层网段。
+
+</details>
+
+epoll 相比 select/poll 快在哪两个关键点？
+
+<details><summary>参考答案</summary>
+
+一是**注册与等待分离**：fd 一次性注册进**红黑树**常驻内核，就绪时由回调挂入**就绪链表**，`epoll_wait` 直接摘取 O(1)。二是**只返回就绪 fd**：消除了 select/poll 每次调用把**全量** fd 拷进内核并**线性遍历** O(n) 的两处开销，性能与总连接数无关。
+
+</details>
+
+LT 和 ET 有什么区别？ET 模式编程要注意什么？
+
+<details><summary>参考答案</summary>
+
+**LT（水平触发）**：缓冲区非空/可写就每次 `epoll_wait` 都通知，可分次读，编程简单。**ET（边沿触发）**：仅状态**从无到有变化时通知一次**，必须**循环读写到 EAGAIN** 把缓冲处理干净否则丢事件，且 fd 必须为**非阻塞**。ET 唤醒次数少、效率高但易出错。
+
+</details>
+
+多进程监听同一 listen fd 的惊群问题是什么？有哪两种解法？
+
+<details><summary>参考答案</summary>
+
+**惊群**：一个连接到来唤醒所有等待者，只有一个 accept 成功，其余空转浪费 CPU。解法一 **`EPOLLEXCLUSIVE`**：内核每次只唤醒一个等待者。解法二 **`SO_REUSEPORT`**：内核把连接**哈希分发**到各 worker 的独立监听队列，从根上消除惊群且负载更均衡。
+
+</details>
+
+为什么用 LVS 四层做第一层、Nginx 七层做第二层，而不直接用七层网关接入？
+
+<details><summary>参考答案</summary>
+
+七层网关要**完整解析应用层、维护双向连接、缓冲请求体**，单机吞吐有限、成本高，无法承接超大流量入口。LVS **四层只看 IP+端口**在内核查表转发，能廉价把海量连接**均分**到一排 Nginx；再由七层做内容路由/TLS/缓存。分层各取所长，兼顾**规模与能力**。
+
+</details>
+

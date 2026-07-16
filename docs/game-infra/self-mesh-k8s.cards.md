@@ -1,0 +1,40 @@
+# self-mesh-k8s — 闪卡
+
+> 用 O(N) 全连接换 O(1) 单跳收敛，靠数字 ID + hostNetwork 撑起万级有状态直连。
+
+## 记忆口诀
+
+**拓扑**：全连接 / 单跳广播 / O(N)换O(1)
+**部署**：DaemonSet / hostNetwork / 跳出Overlay
+**性能基石**：数字ID / Jump Hash / calc_connect / 水库抽样32
+**一致性**：立即广播 / 一致性HASH / 3次重试 / 面板对账
+
+## Card 1
+
+**Q**: 自研 Mesh 的心跳广播和 Gossip 到底是不是一回事？它们的取舍方向有什么本质区别？
+
+**A**: 不是。代码是全连接网格 + 单跳全量广播：收包只更新本地路由表、不再转发，组包只装本机实例。Gossip 用 O(W) 连接换 O(log N) 跳数；自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数，取舍方向恰好相反。
+
+## Card 2
+
+**Q**: 为什么全互联下连接数还能均衡？calc_connect 怎么决定"谁主动连"？
+
+**A**: TCP 全双工，两节点只需 1 条链路。朴素"大 IP 连小 IP"会让连接数极度倾斜。calc_connect 用 IP 末位 bit 异或的公认随机值：异或值双方算出必然一致且 0/1 各 50% 均匀。实测 5000 节点最大连接差仅 0.37%。
+
+## Card 3
+
+**Q**: 业务 Pod 是怎么连到本机 mesh 的？为什么不用 UDS？
+
+**A**: 靠 hostNetwork + hostIP 注入：mesh DaemonSet 监听宿主机 `0.0.0.0:8000`，业务经 Downward API 拿到 `HOST_IP`，用 `HOST_IP:8000` 直接命中本机 mesh，流量不走 Overlay。本机 msc 接业务走的是消息总线共享内存 channel，不是 UDS。
+
+## Card 4
+
+**Q**: 对比 Sidecar 与 DaemonSet 两种部署模型，为什么放弃 Sidecar？
+
+**A**: Sidecar：每 Pod 一个 mesh，多 Pod 互联单实例近 1GB 内存，10 Pod 节点要 10GB，且 K8s 网络组件频繁异常。DaemonSet：一机一 mesh 所有 Pod 共享，连接数大幅收敛、内存/CPU 省、用主机网络跳出 Overlay。故弃 Sidecar 用 DaemonSet。
+
+## Card 5
+
+**Q**: 第一版基于 Consul 为什么撑不住？第二版提出了哪些根本性需求？
+
+**A**: Consul 痛点：超 300 实例数据重复、100+ 服务同时 Watch、5000 实例每次变更解析 5~8 秒、节点上限 5000、2021 官方停中国区支持。第二版需求：去中心化 · 万级节点 · 自动注册剔除 · 云主机转发性能 · 异构混部 · 可定制路由。

@@ -9,7 +9,10 @@
     "docs:build": "vuepress build docs",
     "docs:build:pages": "cross-env DEPLOY_TARGET=pages vuepress build docs",
     "docs:build:cos": "cross-env DEPLOY_TARGET=cos vuepress build docs",
-    "docs:clean": "rimraf docs/.vuepress/.cache docs/.vuepress/.temp docs/.vuepress/dist"
+    "docs:clean": "rimraf docs/.vuepress/.cache docs/.vuepress/.temp docs/.vuepress/dist",
+    "check:structure": "node scripts/check-structure.js",
+    "generate:cards": "node scripts/generate-cards.mjs",
+    "export:anki": "node scripts/generate-cards.mjs"
   },
   "devDependencies": {
     "@vuepress/bundler-vite": "2.0.0-rc.30",

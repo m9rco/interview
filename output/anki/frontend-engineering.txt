@@ -1,0 +1,5 @@
+Gulp 和 Webpack 都能处理前端资源，为什么"模块打包"这件事上 Webpack 完胜？	Gulp 是基于流的任务运行器，只会顺序 pipe 处理一批文件，不理解模块依赖。Webpack 从 `entry` 递归解析 import 构建依赖图，因此能做 Tree Shaking、Code Splitting 这些依赖图级优化——Gulp 没有依赖图概念，做不到。
+`contenthash` 命名是怎么同时实现"长期缓存命中"和"更新精确失效"的？	浏览器缓存以 URL 为 key。`contenthash` 让文件名随内容变：内容不变则 hash 不变、URL 不变命中长缓存；内容一变 hash 变、URL 变强制拉新版本。配合把 vendor 单独 split，可做到业务更新而库缓存不失效。
+hash 模式和 history 模式的路由有什么区别？各自的代价是什么？	hash 模式：URL 带 `#`，`#` 后变化不发请求，兼容好、无需服务端配置，但 URL 丑、SEO 差。history 模式：用 `pushState`，URL 干净，但刷新时浏览器真的请求该路径，需服务端把所有路由 fallback 到 index.html，否则 404。
+H5 游戏为什么不直接用 DOM，而要上 WebGL 专用引擎？	DOM 每次修改可能触发重排/重绘，几百精灵每帧移动会让布局引擎崩溃；DOM 为文档流布局设计，无法批量绘制。WebGL 是立即模式、GPU 并行，配合纹理合图减少 draw call、RAF 主循环，才能稳 60fps。
+后台管理系统该用 CSR 还是 SSR？为什么不是"越重越好"？	用 CSR 即可。SSR 首屏快、SEO 好，但代价是服务端渲染开销、同构复杂度（小心 `window` 等 API）、部署更复杂。后台系统无 SEO 需求、登录后使用，CSR 完全够；只有面向公众且需 SEO/极致首屏的页面才值得上 SSR 或预渲染。

@@ -6,6 +6,10 @@ title: 编译优化与 LLVM/Clang/GCC
 
 > 现代编译器是一条**前端 → 优化器 → 后端**的三段式流水线，中间用一层**目标无关的 IR**解耦。LLVM 把这条流水线彻底**库化、模块化**，这正是它能催生 Clang、Rust、Swift、Julia、MLIR 一整个生态的根因，也是它与"单体" GCC 的历史分野。
 
+::: tip 一句话结论
+编译是前端→优化器→后端三段式，靠目标无关 IR 解耦；LLVM 把它库化才催生了整个生态。
+:::
+
 ## 场景问题
 
 写 C++ 游戏服务端/客户端，绕不开的问题：
@@ -130,9 +134,58 @@ flowchart TD
 - 优化：常量折叠、内联、循环展开/向量化、DCE、逃逸分析、PGO。
 - **Clang 之于 GCC**：模块化库化 vs 单体、Apache vs GPL、诊断与 IDE 集成更强——这套可复用的库化设计，才是 LLVM 成为现代语言基础设施的原因。
 
+### 记忆口诀
+
+**三段式**：前端 Clang / 优化器 opt / 后端 llc / 中间 IR 解耦
+**LLVM IR**：SSA 单赋值 / 强类型 / 目标无关 / M+N 而非 M×N
+**工具链**：clang / opt / llc / lld / libc++ / LTO / Sanitizers / libFuzzer
+**Clang vs GCC**：库化 vs 单体 / Apache vs GPL / 诊断友好 / clangd 集成
+
 ## 内容来源
 
 - LLVM 官方文档：LLVM Language Reference（IR/SSA）、"The Architecture of Open Source Applications: LLVM"（Chris Lattner）
 - Clang 官方文档：诊断、libclang/clangd、Sanitizers、libFuzzer
 - GCC 与 LLVM 许可证与设计历史公开资料
 - 《Engineering a Compiler》三段式与 SSA 章节；作者在 C++ 服务端用 Sanitizer/PGO 的实践
+
+## 自测：合上资料能说清楚吗？
+
+编译器的三段式流水线分别是哪三段？中间用什么把它们解耦？
+
+<details><summary>参考答案</summary>
+
+**前端**（Clang，做词法/语法/语义分析生成 AST 并降级为 IR）、**优化器**（opt，跑与语言/目标无关的 Pass）、**后端**（llc，指令选择/寄存器分配生成机器码）。中间靠**目标无关的 LLVM IR** 解耦，语言换只换前端，平台换只换后端。
+
+</details>
+
+为什么统一 IR 能把编译器数量从 M×N 降到 M+N？
+
+<details><summary>参考答案</summary>
+
+`M` 种语言直连 `N` 种架构要写 `M×N` 个编译器。引入统一 **IR** 后，每种语言只写一个前端（M 个）、每种架构只写一个后端（N 个），**优化器写一次全复用**，总量降为 `M+N`。
+
+</details>
+
+LLVM IR 用的 SSA 形式是什么？为什么它让优化更简单？
+
+<details><summary>参考答案</summary>
+
+**SSA**（Static Single Assignment）指每个变量**只赋值一次**，用带编号的虚拟寄存器表示。因定义唯一，**使用-定义链一目了然**，常量传播、DCE、寄存器分配等数据流分析都变得直接高效。
+
+</details>
+
+Clang/LLVM 与 GCC 的核心差异是什么？为什么 Apple 要资助做 Clang？
+
+<details><summary>参考答案</summary>
+
+Clang/LLVM 是**模块化、库化**设计（Apache 2.0，可嵌入），GCC 历史上是**单体**（GPL，内部表示不对外）。GCC 难以被复用做 IDE 补全/静态分析等工具，Apple 需要一个**可作为库嵌入**的编译器，遂资助 Chris Lattner 做 Clang/LLVM。
+
+</details>
+
+LTO 和 Sanitizers 分别解决什么问题？
+
+<details><summary>参考答案</summary>
+
+**LTO**（链接期优化）把优化推迟到链接期，做**跨编译单元的内联/DCE**，突破单文件编译的优化边界。**Sanitizers**（ASan/TSan/UBSan）编译期**插桩**、运行时抓内存越界/UAF、数据竞争、未定义行为，是排查内存与并发 bug 的利器。
+
+</details>

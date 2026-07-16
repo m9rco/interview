@@ -229,9 +229,54 @@ flowchart TD
 - 上下文窗口的 O(n²) 注意力开销、解码采样等底层约束见 [大模型核心原理](/ai-llm/llm-fundamentals.md)；latency / 成本优化（KV Cache、投机解码、量化）见 [推理与微调优化](/ai-llm/llm-inference-optimization.md)。
 :::
 
+### 记忆口诀
+
+- **六件套**：Prompt / Tools / Memory / Loop / Guardrails / Evaluation
+- **最小闭环**：Perception → Plan → Act → Reflect
+- **工具四原则**：幂等 / 校验+友好错误 / 返回截断 / 副作用可回滚
+- **分层记忆**：短期原文 / 中期摘要+pin关键事实 / 长期向量库
+- **生产铁律**：Demo 20% / 评测护栏 80% / 熔断+预算+白名单+Trace
+
 ## 内容来源
 
 迁移自 guide/theme-agent-dev（综合整理）
 
 > 综合整理：Anthropic / OpenAI / LangChain 官方文档、AI 巡检自研经验（2026-07；生态更新快，请以官方文档为准）
+
+## 自测：合上资料能说清楚吗？
+
+1. Agent 的最小闭环由哪四步构成？它和一次普通的 LLM 调用最大的区别在哪？
+<details><summary>参考答案</summary>
+
+**Perception → Plan → Act → Reflect** 循环。区别：Agent 能**自主调用工具**获取外部信息、**观察结果**后**迭代**，普通调用是单轮无反馈的一问一答。
+
+</details>
+
+2. 工具（Tool Use）设计的四条原则是什么？分别防的是什么坑？
+<details><summary>参考答案</summary>
+
+**幂等**（防重试重复扣款）、**参数校验+友好错误**（防参数幻觉、助自我修正）、**返回截断**（防打爆 context）、**副作用可回滚/二次确认**（防误删误操作）。
+
+</details>
+
+3. 对话历史撑爆 200k context，分层记忆是怎么解决的？关键事实为什么要单独 pin？
+<details><summary>参考答案</summary>
+
+**短期**留最近 N 轮原文、**中期**压摘要+关键事实、**长期**进向量库按需召回。pin 是因为**滑动窗口会误删早期指令**、**摘要漂移会丢约束**，关键事实固定不参与滑动才不丢。
+
+</details>
+
+4. 对比 **ReAct** 和 **Plan-and-Execute**：各自思路、适用场景与短板？
+<details><summary>参考答案</summary>
+
+**ReAct** 每步现想现做（Thought→Action→Observation），灵活但易跑偏、步数多。**Plan-and-Execute** 先出完整计划再逐步执行、中途可 replan，适合**长任务**，但初始计划可能不准。
+
+</details>
+
+5. 为什么说"Demo 跑通只是 20%"？生产化最容易坏在哪几处，各配什么护栏？
+<details><summary>参考答案</summary>
+
+剩 80% 是**评测+护栏**。常坏点：**无限循环**（去重+轮数熔断）、**输出爆炸**（分页摘要）、**参数幻觉**（Schema 校验）、**成本失控**（token 预算+熔断）、**副作用**（白名单+human-in-the-loop）、**可观测缺失**（Trace+span）。
+
+</details>
 

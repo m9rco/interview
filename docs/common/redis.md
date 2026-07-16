@@ -6,6 +6,10 @@ title: Redis 版本演进 & 分布式
 
 > 3.x → 8.x · 分布式锁 · Cluster · 缓存三板斧
 
+::: tip 一句话结论
+单线程原子性是根，版本演进围绕并发与分布式，锁和缓存三板斧靠它兜底。
+:::
+
 ## 场景问题
 
 Redis 是分布式议题的常客，面试里几乎绕不开版本演进与分布式协调。先看版本演进时间线（面试常问的每一版关键变化）。
@@ -137,6 +141,55 @@ flowchart TD
 - **淘汰策略**：`allkeys-lru`（缓存场景）、`volatile-ttl`（有明确 TTL 数据）、`allkeys-lfu`（热点稳定）
 - **内存优化**：`ziplist`/`listpack` 阈值调优；小 hash/小 list 会自动压缩
 
+### 记忆口诀
+
+- **版本主线**：3.0 Cluster / 5.0 Stream / 6.0 多线程IO+ACL / 7.0 Function+分片Pub-Sub / 8.0 Modules内建
+- **分布式锁**：SETNX+PX / Lua校验UUID释放 / 看门狗续期 / 强一致走ZK-etcd
+- **缓存三板斧**：穿透→布隆+空值 / 击穿→互斥重建+逻辑过期 / 雪崩→随机TTL+多级+熔断
+- **一致性**：Cache-aside删缓存 / 延时双删 / Canal订阅binlog兜底
+
 ## 内容来源
 
 迁移自 guide/theme-redis（综合整理）。原始出处：综合整理 Redis 官方 release notes、Antirez 博客、redis.io/docs（2026-07；请以官方文档为准）。
+
+## 自测：合上资料能说清楚吗？
+
+1. 为什么 Redis 天然适合做分布式锁/计数器？它的原子性从何而来？
+
+<details><summary>参考答案</summary>
+
+**单线程命令模型**——命令串行执行，无并发竞态，单条命令天然原子。配合 `SET NX PX` 一步完成"**不存在则设置+过期**"，是分布式锁/计数器/幂等的最佳场地。
+
+</details>
+
+2. 缓存穿透、击穿、雪崩分别是什么？各自的应对手段？
+
+<details><summary>参考答案</summary>
+
+**穿透**：查不存在的 key，用**布隆过滤器**+**空值缓存**。**击穿**：热点 key 过期后大量请求打 DB，用**互斥重建**+**逻辑过期**。**雪崩**：大量 key 同时过期，用**随机 TTL**+多级缓存+熔断降级。
+
+</details>
+
+3. 对比 Redlock 与「单主+看门狗」两种分布式锁方案，各自适用场景？
+
+<details><summary>参考答案</summary>
+
+**Redlock**：向 5 独立主节点取锁，得 N/2+1 成功；依赖时钟不回拨，Kleppmann 批评其不如 **fencing token** 安全。**单主+看门狗**：Redisson 后台每 TTL/3 续期，故障切换可能丢锁需幂等兜底。普通业务用后者足够；**强一致选 ZK/etcd**。
+
+</details>
+
+4. Cache-aside 写操作为什么是"先写 DB 再删缓存"而非"更新缓存"？如何应对由此产生的不一致？
+
+<details><summary>参考答案</summary>
+
+删缓存比更新缓存**避免并发写覆盖**、且惰性回填省资源。不一致坑用**延时双删**（删→写DB→sleep→再删）、关键读走**主库**、**Canal/Debezium 订阅 binlog** 异步失效缓存实现最终一致。
+
+</details>
+
+5. Cluster 为什么多 key 命令必须同 slot？如何强制多个 key 落到同一 slot？
+
+<details><summary>参考答案</summary>
+
+Cluster 按 `CRC16(key) mod 16384` 分片，不同 slot 可能在不同节点，跨节点无法保证原子事务，故 `MSET`/`MGET`/事务/Lua 受限。用 **Hash Tag**（如 `{userid:1000}:profile`）——只对 `{}` 内内容做哈希，强制同 slot。
+
+</details>

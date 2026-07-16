@@ -6,6 +6,10 @@ title: 自研 Mesh 服务网格 × K8s 部署
 
 自研服务网格 · 从 Consul 到全连接单跳广播 · 万级节点
 
+::: tip 一句话结论
+用 O(N) 全连接换 O(1) 单跳收敛，靠数字 ID + hostNetwork 撑起万级有状态直连。
+:::
+
 ## 场景问题
 
 ::: warning ⚠️ 校正清单（面试必带）
@@ -251,6 +255,56 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 - 部署上用 **DaemonSet + hostNetwork** 跳出 K8s Overlay，规避网络组件频繁异常；节点发现落在 **运维面板** 而非 mesh C 代码本身，靠 **host.txt 与 K8s API 交叉对账** 保证一致性。
 - 面试记住四条校正：**Gossip 未落地、节点发现在面板、本机通信走消息总线共享内存、跨 DC 只见直连优先**。
 
+### 记忆口诀
+
+**拓扑**：全连接 / 单跳广播 / O(N)换O(1)
+**部署**：DaemonSet / hostNetwork / 跳出Overlay
+**性能基石**：数字ID / Jump Hash / calc_connect / 水库抽样32
+**一致性**：立即广播 / 一致性HASH / 3次重试 / 面板对账
+
 ## 内容来源
 
 综合整理自自研服务网格的架构演进与工程实践（连接算法、水库抽样、Jump Consistent Hash、DaemonSet+hostNetwork 部署、节点发现对账等），配合 Consul、Istio、Cilium 等公开方案的对比。
+
+## 自测：合上资料能说清楚吗？
+
+自研 Mesh 的心跳广播和 Gossip 到底是不是一回事？它们的取舍方向有什么本质区别？
+
+<details><summary>参考答案</summary>
+
+**不是**。代码是**全连接网格 + 单跳全量广播**：收包只更新本地路由表、**不再转发**，组包只装本机实例。Gossip 用 **O(W) 连接换 O(log N) 跳数**；自研 Mesh 用 **O(N) 连接换 O(1) 收敛跳数**，**取舍方向恰好相反**。
+
+</details>
+
+为什么全互联下连接数还能均衡？calc_connect 怎么决定"谁主动连"？
+
+<details><summary>参考答案</summary>
+
+TCP 全双工，两节点只需 **1 条链路**。朴素"大 IP 连小 IP"会让连接数极度倾斜。calc_connect 用 **IP 末位 bit 异或的公认随机值**：异或值双方算出必然一致且 **0/1 各 50% 均匀**。实测 5000 节点最大连接差仅 **0.37%**。
+
+</details>
+
+业务 Pod 是怎么连到本机 mesh 的？为什么不用 UDS？
+
+<details><summary>参考答案</summary>
+
+靠 **hostNetwork + hostIP 注入**：mesh DaemonSet 监听宿主机 `0.0.0.0:8000`，业务经 Downward API 拿到 **`HOST_IP`**，用 `HOST_IP:8000` 直接命中本机 mesh，流量**不走 Overlay**。本机 msc 接业务走的是**消息总线共享内存 channel**，不是 UDS。
+
+</details>
+
+对比 Sidecar 与 DaemonSet 两种部署模型，为什么放弃 Sidecar？
+
+<details><summary>参考答案</summary>
+
+**Sidecar**：每 Pod 一个 mesh，多 Pod 互联单实例近 **1GB 内存**，10 Pod 节点要 10GB，且 K8s 网络组件频繁异常。**DaemonSet**：一机一 mesh 所有 Pod 共享，**连接数大幅收敛**、内存/CPU 省、用主机网络跳出 Overlay。故弃 Sidecar 用 DaemonSet。
+
+</details>
+
+第一版基于 Consul 为什么撑不住？第二版提出了哪些根本性需求？
+
+<details><summary>参考答案</summary>
+
+Consul 痛点：超 **300 实例**数据重复、100+ 服务同时 Watch、5000 实例每次变更解析 **5~8 秒**、节点上限 5000、**2021 官方停中国区支持**。第二版需求：**去中心化 · 万级节点 · 自动注册剔除 · 云主机转发性能 · 异构混部 · 可定制路由**。
+
+</details>
+

@@ -146,6 +146,50 @@ flowchart LR
 
 一句话选型：**要吞吐和流处理 → Kafka；要灵活路由和低延迟业务消息 → RabbitMQ；要云原生存算分离和多租户 → Pulsar**。
 
+### 记忆口诀
+
+- **三处不丢**：生产 acks=all+重试 / Broker 持久化+多副本(ISR≥2) / 消费手动 ack 先处理后提交
+- **交付语义**：默认至少一次 / 必然重复 / 消费端幂等兜底（唯一索引·去重表·状态机）
+- **顺序积压**：同 key 同分区+单线程保序 / 积压先扩分区再加消费者 / 紧急转存新 topic
+- **选型一句**：吞吐流处理选 Kafka / 灵活路由低延迟选 RabbitMQ / 存算分离多租户选 Pulsar
+
 ## 内容来源
 
 关键点整理自 [Kafka 官方文档](https://kafka.apache.org/documentation/)、[RabbitMQ 文档](https://www.rabbitmq.com/documentation.html)、[Apache Pulsar 文档](https://pulsar.apache.org/docs/)与《Designing Data-Intensive Applications》（Martin Kleppmann，第 11 章 Stream Processing）重写为五段式。请以各 MQ 官方文档为准。
+
+## 自测：合上资料能说清楚吗？
+
+1. 一条消息从生产到消费，可能在哪几个环节丢失？每个环节各靠什么机制兜底？
+   <details><summary>参考答案</summary>
+
+三处会丢：**生产→Broker** 靠 `acks=all`+重试/publisher confirm；**Broker 自身** 靠**持久化+多副本**(ISR≥2)；**Broker→消费** 靠**手动 ack** 且"**先处理后提交位点**"。缺一段即漏。
+
+</details>
+
+2. 既然 MQ 保证不了不重复，那"不重复消费"到底靠什么实现？举两种手段。
+   <details><summary>参考答案</summary>
+
+默认 **at-least-once**，ack 丢失就重投，不重只能靠**消费端幂等**：业务**唯一键+唯一索引**冲突丢弃；或 **Redis SETNX/去重表**标记 msgId；或**状态机**单向流转挡掉重复回调。
+
+</details>
+
+3. 为什么顺序消费只能做"分区内有序"而非全局有序？怎么实现分区内有序？
+   <details><summary>参考答案</summary>
+
+全局有序要**串行化所有消息**，与高吞吐靠并行根本冲突。做法：同 key **hash 到同一分区**+该分区**单线程消费**；注意 producer 重试（max.in.flight>1）和消费端线程池会打乱顺序。
+
+</details>
+
+4. 消息积压几百万，为什么单纯加消费者不一定管用？正确处理顺序是什么？
+   <details><summary>参考答案</summary>
+
+Kafka 同组内**一个分区只能被一个消费者消费**，并行度受**分区数**上限约束。顺序：先**扩分区**→再**加消费者**→紧急时用一批消费者只做搬运，**转存到更多分区的新 topic** 再慢慢消费。
+
+</details>
+
+5. 对比 Kafka 与 RabbitMQ：模型、吞吐、路由灵活性、回溯能力有何差异？各自典型场景？
+   <details><summary>参考答案</summary>
+
+**Kafka** 分区日志(拉)、**吞吐极高**、路由弱、**回溯强**，适合日志/流处理/削峰；**RabbitMQ** 队列+交换机(推)、吞吐中、**路由灵活**(direct/topic/fanout)、**低延迟**但消费即删无回溯，适合业务解耦/复杂路由。
+
+</details>

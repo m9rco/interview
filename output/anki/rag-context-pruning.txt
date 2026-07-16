@@ -1,0 +1,5 @@
+检索已经做了 rerank，为什么还要再插一层剪枝？	rerank 是 pointwise：对每条 chunk 单独打分，分不出「两条重复只留一条」与「两条各含答案一半都得留」；且过长上下文稀释注意力（迷失在中间）、多花 token。
+对比 pointwise rerank 与 listwise grader 的本质差异，为什么后者能处理多跳问题？	pointwise 各打各的、分数互不可比；listwise 一次通读全部候选再打分，能利用 chunk 间的冗余/互补关系，为每题算出合适的 N，从而在多跳题保住互补 chunk。
+threshold 和 keep_top_k 各管什么？为什么要两个旋钮？	threshold（默认 3）是主旋钮，调压缩率↔recall 取舍；keep_top_k（默认 2）是兜底，永远保留 rerank 前 K 条，防 grader 抽风误删。
+实验里「pytest 全绿」和「本机净 token 为负」为什么都不能否定方法？	三层假设别混：H1 代码正确（pytest 保证，与模型无关）；H2 方法有效（压缩↑且 recall↑，已强通过）；H3 成本正负是模型选型问题——用 23GB 大模型当 grader 才为负，换小模型即翻正。
+什么场景**不该**上 listwise 剪枝？	秒级同步 UI + 已很锐利的 reranker（多 0.7s 用户有感）；检索集本来就小（top-3/4，pruner 只能删不能补）；还没有标注评测集（旋钮无锚点）。核心：pruner 是 reranker 的放大器不是替代品。

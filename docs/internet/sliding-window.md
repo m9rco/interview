@@ -6,6 +6,10 @@ title: TCP/HTTP 滑动窗口
 
 > 滑动窗口是 TCP 流量控制的核心，`cwnd` 是拥塞控制的核心，二者共同约束发送速率。本文从 TCP 窗口机制（rwnd 通告、零窗口探测、糊涂窗口/Nagle/Delayed ACK）讲到 HTTP/2 的连接级+流级流控与 HTTP/3 QUIC 的流控，并说明为什么应用层还要自己限流。
 
+::: tip 一句话结论
+发送量取 min(rwnd, cwnd)，滑动窗口护缓冲与链路，业务另需应用层限流。
+:::
+
 ## 场景问题
 
 发送方能有多快地往网络里灌数据？这受两个独立约束：
@@ -138,6 +142,55 @@ def allow():
 4. **HTTP 层演进主线**：HTTP/1.1 应用层队头阻塞 → HTTP/2 多路复用 + 连接级/流级 WINDOW_UPDATE（但仍受 TCP 队头阻塞）→ HTTP/3 QUIC 流独立交付彻底根治。
 5. **窗口 ≠ 限流**：TCP/QUIC 窗口保护链路与缓冲，**保护不了后端业务**，应用层必须另做令牌桶/信号量/熔断。
 
+### 记忆口诀
+
+**两窗取小**：rwnd 护对端缓冲 / cwnd 护网络链路 / 发送量=min
+**滑动引擎**：收 ACK / snd_una 右移 / 腾空间发新数据
+**三易错**：零窗口→持续计时器+探针 / SWS→两端分治 / Nagle+Delayed ACK→互等用 TCP_NODELAY
+**HTTP 主线**：1.1 应用队头阻塞 / 2 多路复用受 TCP 阻塞 / 3 QUIC 流独立根治
+
 ## 内容来源
 
 综合整理。主要参考方向：RFC 793 / RFC 9293（TCP 规范、滑动窗口、持续计时器）、RFC 1122（SWS 治理、Nagle、Delayed ACK）、RFC 1323/7323（Window Scaling）、RFC 5681（TCP 拥塞控制、慢启动/拥塞避免）、RFC 7540 / RFC 9113（HTTP/2 流控与 WINDOW_UPDATE）、RFC 9000（QUIC 流控 MAX_DATA/MAX_STREAM_DATA）、RFC 9114（HTTP/3）、《TCP/IP Illustrated Vol.1》相关章节。
+
+## 自测：合上资料能说清楚吗？
+
+发送方某一时刻究竟能往网络里灌多少字节？这个量由什么决定？
+
+<details><summary>参考答案</summary>
+
+**发送量 = min(rwnd, cwnd)**。`rwnd` 是接收方随 ACK 通告的**接收窗口**，护住对端缓冲；`cwnd` 是发送方自维护的**拥塞窗口**，靠丢包/RTT 探测护住网络链路。两者正交，任一为 0 都停发，必须同时满足。
+
+</details>
+
+接收方通告了零窗口后发送方停发，为什么还需要**零窗口探测**？没有它会怎样？
+
+<details><summary>参考答案</summary>
+
+窗口重开的 ACK 是**纯 ACK，丢失不会触发重传**。若无探测，接收方缓冲腾空后的开窗通告一旦丢失，双方会永久互等而**死锁**。发送方启动**持续计时器（persist timer）**，周期性发 1 字节 **Window Probe** 打破僵局。
+
+</details>
+
+对比 **rwnd 和 cwnd**：为什么不能用一个窗口统一管流控和拥塞控制？
+
+<details><summary>参考答案</summary>
+
+它们防两类不同溢出：**rwnd 防接收方缓冲溢出**（可从 ACK 直接得知对端容量），**cwnd 防网络路径拥塞**（发送方看不见网络内部，只能靠丢包/RTT 推测）。信息来源与反馈机制不同，单窗口会在某一维度失控——要么压垮接收方，要么加剧拥塞。
+
+</details>
+
+对比 **HTTP/2 与 HTTP/3** 在队头阻塞上的差异，为什么 HTTP/2 多路复用没能彻底解决？
+
+<details><summary>参考答案</summary>
+
+HTTP/2 在**一个 TCP 连接**上多路复用多个流，消除了 HTTP 层队头阻塞，但仍跑在 TCP 上——**一个 TCP 段丢失，全连接所有流都要等重传**，队头阻塞被挪到 TCP 层。HTTP/3 换用 **QUIC（UDP）**，每个 stream **独立交付**，一个流丢包只阻塞该流，彻底根治。
+
+</details>
+
+TCP 窗口已经在做流控了，为什么应用层还要令牌桶/信号量限流？
+
+<details><summary>参考答案</summary>
+
+TCP/QUIC 窗口只保证"数据安全送达对端 **socket 缓冲**"，**不知道后端业务处理得过来没有**。窗口大时海量请求照样涌入应用层压垮 DB/下游。**窗口保护链路与缓冲，应用限流保护业务逻辑与依赖**，粒度分别是字节/socket 与 CPU/DB连接/QPS，层次不同不可替代。
+
+</details>

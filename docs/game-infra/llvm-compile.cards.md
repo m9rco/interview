@@ -1,0 +1,40 @@
+# llvm-compile — 闪卡
+
+> 编译是前端→优化器→后端三段式，靠目标无关 IR 解耦；LLVM 把它库化才催生了整个生态。
+
+## 记忆口诀
+
+**三段式**：前端 Clang / 优化器 opt / 后端 llc / 中间 IR 解耦
+**LLVM IR**：SSA 单赋值 / 强类型 / 目标无关 / M+N 而非 M×N
+**工具链**：clang / opt / llc / lld / libc++ / LTO / Sanitizers / libFuzzer
+**Clang vs GCC**：库化 vs 单体 / Apache vs GPL / 诊断友好 / clangd 集成
+
+## Card 1
+
+**Q**: 编译器的三段式流水线分别是哪三段？中间用什么把它们解耦？
+
+**A**: 前端（Clang，做词法/语法/语义分析生成 AST 并降级为 IR）、优化器（opt，跑与语言/目标无关的 Pass）、后端（llc，指令选择/寄存器分配生成机器码）。中间靠目标无关的 LLVM IR 解耦，语言换只换前端，平台换只换后端。
+
+## Card 2
+
+**Q**: 为什么统一 IR 能把编译器数量从 M×N 降到 M+N？
+
+**A**: `M` 种语言直连 `N` 种架构要写 `M×N` 个编译器。引入统一 IR 后，每种语言只写一个前端（M 个）、每种架构只写一个后端（N 个），优化器写一次全复用，总量降为 `M+N`。
+
+## Card 3
+
+**Q**: LLVM IR 用的 SSA 形式是什么？为什么它让优化更简单？
+
+**A**: SSA（Static Single Assignment）指每个变量只赋值一次，用带编号的虚拟寄存器表示。因定义唯一，使用-定义链一目了然，常量传播、DCE、寄存器分配等数据流分析都变得直接高效。
+
+## Card 4
+
+**Q**: Clang/LLVM 与 GCC 的核心差异是什么？为什么 Apple 要资助做 Clang？
+
+**A**: Clang/LLVM 是模块化、库化设计（Apache 2.0，可嵌入），GCC 历史上是单体（GPL，内部表示不对外）。GCC 难以被复用做 IDE 补全/静态分析等工具，Apple 需要一个可作为库嵌入的编译器，遂资助 Chris Lattner 做 Clang/LLVM。
+
+## Card 5
+
+**Q**: LTO 和 Sanitizers 分别解决什么问题？
+
+**A**: LTO（链接期优化）把优化推迟到链接期，做跨编译单元的内联/DCE，突破单文件编译的优化边界。Sanitizers（ASan/TSan/UBSan）编译期插桩、运行时抓内存越界/UAF、数据竞争、未定义行为，是排查内存与并发 bug 的利器。

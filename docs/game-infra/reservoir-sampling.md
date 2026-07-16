@@ -6,6 +6,10 @@ title: 蓄水池抽样（Reservoir Sampling）与加权扩展
 
 > 蓄水池抽样解决一个看似不可能的问题：在**总量未知、只能单遍扫描、内存只够放 k 个**的流式数据里，等概率抽出 k 个样本。核心只有一行：第 i 个元素以 k/i 的概率替换池中随机一个。它的美在于——你永远不知道流有多长，却能保证每个元素最终留存概率恰好是 k/n。
 
+::: tip 一句话结论
+总量未知、单遍、O(k) 内存下等概率抽 k 个：第 i 个以 k/i 概率替换池中随机一个。
+:::
+
 ## 场景问题
 
 游戏后台的"从流里公平抽样"随处可见，且都带着"总量未知 + 内存受限"的约束：
@@ -457,6 +461,55 @@ func Grade(shortRate float64, base *EWMA) string {
 - **监控预判是多时间尺度分层**：蓄水池（A-Res 保异常）管"存什么"、EWMA/EWMV 管"实时基线 + 异常度"、ARIMA/SARIMA 管"趋势/季节外推抢提前量"、滑动窗口管"秒级突发"。四者时间尺度递增，配合而非替代。
 - 一句话选型：**总量未知、只能扫一遍、内存只够 k 个时，用蓄水池；要按权重（或保异常）就换 A-Res；实时基线用 EWMA、预判趋势上 ARIMA、抓突发靠滑动窗口 + 双尺度对比。**
 
+### 记忆口诀
+
+**基础**：k/i 替换 / O(1) 每元素 / O(k) 内存 / 单遍
+**正确性**：裂项连乘 / 任意元素 k/n
+**加权 A-Res**：key = u^(1/w) / 最小堆保最大 k 个 / O(log k)
+**监控四尺度**：滑动窗口(秒·突发) / EWMA(分·基线) / ARIMA(时天·外推) / A-Res(保异常·存什么)
+
 ## 内容来源
 
 综合整理。参考资料：Knuth《The Art of Computer Programming》Vol.2 §3.4.2（Algorithm R）、Vitter "Random Sampling with a Reservoir"（ACM TOMS 1985）、Efraimidis & Spirakis "Weighted Random Sampling with a Reservoir"（Information Processing Letters 2006，即 A-Res / A-ExpJ）；时间序列部分参考 Box & Jenkins《Time Series Analysis: Forecasting and Control》（ARIMA/SARIMA 建模与定阶）、Roberts "Control Chart Tests Based on Geometric Moving Averages"（1959，EWMA 控制图）、Page "Continuous Inspection Schemes"（1954，CUSUM），以及日志采样、分布式 Trace 采样、监控异常检测与容量预判的工程实践。
+
+## 自测：合上资料能说清楚吗？
+
+为什么第 i 个元素要用 k/i 而不是别的概率替换？换成固定概率会怎样？
+
+<details><summary>参考答案</summary>
+
+**k/i** 是让每个元素最终留存概率都等于 **k/n** 的唯一正确值。靠**裂项连乘**：入选概率 k/m 乘上后续每步不被替换概率的连乘 m/n，抵消得 k/n。用固定概率会破坏这个平衡——靠后元素替换机会没随 i 缩小，早期元素被过度稀释，不再等概率。
+
+</details>
+
+请证明任意元素在流结束时的留存概率恰为 k/n。
+
+<details><summary>参考答案</summary>
+
+第 m 个（m>k）元素留存 = **入选**(k/m) 且**之后每步不被替换**。第 t 步被替换概率 = (k/t)·(1/k) = 1/t，不被替换 = (t-1)/t。连乘 t=m+1..n 得 **m/n**（裂项抵消），再乘 k/m 得 **k/n**。前 k 个初始必在池中(概率1)同理得 k/n。∎
+
+</details>
+
+基础 Algorithm R 和加权 A-Res 有什么区别？各自复杂度和适用场景？
+
+<details><summary>参考答案</summary>
+
+**Algorithm R** 等权，每元素 **O(1)**（一次 rand + 至多一次赋值），保证等概率。**A-Res** 按权重，给每元素算 **key = u^(1/w)**，用最小堆保留最大 k 个，每元素 **O(log k)**，选中概率正比于权重。等概率场景用 R，需按权重（如监控里以偏离度为权"保异常"）用 A-Res。
+
+</details>
+
+监控预判为什么要"多时间尺度分层"而不是只用一个手段？
+
+<details><summary>参考答案</summary>
+
+单一手段有盲区：**滑动窗口**(秒级)抓突刺但无长期视角；**EWMA**(分钟级)给动态基线 μ±kσ 但不外推未来；**ARIMA**(小时~天)能趋势/季节外推抢提前量但算力重需拟合；**A-Res 蓄水池**管"存什么"且保异常。时间尺度递增、能力互补，是**分层防御**而非替代。
+
+</details>
+
+为什么不能"先收集全部再随机选 k 个"，也不能用伯努利采样（每个以 p 概率留）？
+
+<details><summary>参考答案</summary>
+
+**先收集再选**：需 **O(n) 内存 + 已知 n**，流式数据总量未知且可能 TB 级，爆内存或拿不到 n。**伯努利采样**：样本量不固定（可能远多于/少于 k），且总量未知时无法定出使期望恰为 k 的 p。蓄水池保证**恰好 k 个** + **单遍 O(k) 内存**。
+
+</details>

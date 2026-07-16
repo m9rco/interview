@@ -6,6 +6,10 @@ title: 有状态服务的数据恢复与容灾
 
 > 恢复是**面向故障**的:进程 crash、机器宕机、机房掉电后,把有状态服务的内存态重建到"最近一个可用点"。它没有一个活着的源可供实时追平——只有事先落盘的 checkpoint 和 WAL。核心指标是 RPO(丢多少)与 RTO(多快恢复)。与 `stateful-migration`(计划内主动搬迁,有活源追平)是完全不同的问题,本篇会讲清区别。
 
+::: tip 一句话结论
+故障无活源,只能靠落盘 checkpoint 基线 + WAL 增量重建,用 RPO/RTO 两把旋钮权衡。
+:::
+
 ## 场景问题
 
 战斗服/房间服/世界服的状态大多在内存里跑。一旦进程或机器故障:
@@ -136,6 +140,55 @@ func (s *StateStore) Write(op Op) error {
 一句话:**迁移有一个活着的源做实时追平;恢复没有活源,只能从历史落盘数据重建。**
 :::
 
+### 记忆口诀
+
+**数据来源**:快照基线 / WAL 增量 / 上游重放 / 副本接管
+**两把旋钮**:checkpoint 频率降 RTO / WAL fsync 降 RPO
+**三条铁律**:先日志后内存 / 回放幂等(LSN+CRC)/ 防脑裂(fencing/多数派/term)
+**上线前**:必演练 / 必自检不变量
+
 ## 内容来源
 
 综合整理。参考方向:分布式系统教材(《Designing Data-Intensive Applications》复制/容错章节、WAL 与日志结构存储)、数据库 checkpoint + redo log 恢复机制(如 ARIES 恢复算法思想)、Raft 等共识协议的选主与 fencing、以及游戏后台有状态服容灾演练的通用实践。
+
+## 自测:合上资料能说清楚吗?
+
+RPO 和 RTO 各自由什么决定?想降低它们分别调哪个旋钮?
+
+<details><summary>参考答案</summary>
+
+**RPO**(最多丢多少)由 **checkpoint 频率 + WAL fsync 策略**决定,每条 `fsync` 则 RPO≈0;**RTO**(多久恢复)由**快照加载 + 回放量 + 副本切换**决定。降 RPO 调 **WAL fsync 勤**,降 RTO 调 **checkpoint 频**或走**副本接管**。
+
+</details>
+
+为什么必须"先写日志再改内存"(Write-Ahead),反过来会怎样?
+
+<details><summary>参考答案</summary>
+
+保证**已确认的写一定在日志里**,是可恢复性的地基。若先改内存后写日志,crash 卡在两步之间就会"内存改了但日志没有",恢复不出来;而先日志后内存,最坏是"日志有但没应用",回放时补上即可。
+
+</details>
+
+WAL 回放为什么必须幂等?尾部半写记录怎么处理?
+
+<details><summary>参考答案</summary>
+
+crash 可能导致重复回放,故 `Apply` 必须幂等(**set 而非 incr**),并用 **LSN 去重**跳过已应用记录。尾部最后一条可能只写一半,用 **per-record CRC** 检测,遇坏记录**截断**——这个截断点就是本次恢复的实际 **RPO 边界**。
+
+</details>
+
+副本接管为什么怕脑裂?列举两种防护手段。
+
+<details><summary>参考答案</summary>
+
+网络分区下旧主没死透、新主又被提起,**双主各写导致数据分叉**,合并无解,比丢数据更严重。防护:**fencing**(STONITH/租约过期拒写击杀旧主)、**多数派仲裁/lease**(Raft 选主)、**epoch/term 单调递增**(旧 term 写被存储层拒绝)。
+
+</details>
+
+stateful-migration 和 stateful-recovery 的本质区别是什么?
+
+<details><summary>参考答案</summary>
+
+区别在**有没有活着的源**。**迁移**是计划内变更,源健在,可实时推增量、慢慢追平、失败可回滚源;**恢复**是故障触发,源已死/失联,**无活源**,只能从落盘 **checkpoint + WAL** 或副本重建,失败只能退到 WAL 截断点。
+
+</details>

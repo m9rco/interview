@@ -154,6 +154,51 @@ let b2 = c.borrow_mut(); // ❌ 运行时 panic: already borrowed
 - **`async fn` 返回惰性 Future，不 `.await` 不执行；别跨 await 持有非 Send 守卫**
 - **泛型 = 静态分发零开销；`dyn Trait` = 动态分发有虚表；Rust 内存安全 ≠ 不泄漏**
 
+### 记忆口诀
+
+- **所有权**：唯一 / move 后失效 / Copy 才拷贝
+- **借用**：共享不可变 `&T` / 可变不共享 `&mut T` / NLL 末次即结束
+- **共享可变**：单线程 `Rc<RefCell>` / 多线程 `Arc<Mutex>` / 环用 `Weak` 打破
+- **错误**：`Result`+`?` 传播 / `unwrap` 会 panic / `Send·Sync` 编译期查
+- **async**：Future 惰性 / 不 await 不跑 / 别跨 await 持非 Send 守卫
+
 ## 内容来源
 
 关键点整理自 [The Rust Programming Language（官方 Book）](https://doc.rust-lang.org/book/)、[Rustonomicon](https://doc.rust-lang.org/nomicon/)、[Rust Reference](https://doc.rust-lang.org/reference/) 与社区共识（NLL、Send/Sync 规则）重写为五段式。请以官方文档为准。
+
+## 自测：合上资料能说清楚吗？
+
+1. 为什么 `let b = a;` 之后再用 `a` 会编译报错？什么类型不会？
+<details><summary>参考答案</summary>
+
+非 **Copy** 类型赋值是 **move**（所有权转移），`a` 失效。整数/`bool`/`char` 等 **Copy** 类型是**按位拷贝**，原变量仍可用；`Clone` 是显式深拷贝。
+
+</details>
+
+2. 借用规则的「铁律」是什么？NLL 又放宽了什么？
+<details><summary>参考答案</summary>
+
+同一数据要么**多个 `&T`**、要么**唯一 `&mut T`**，不可并存（共享不可变、可变不共享）。**NLL** 让借用在**最后一次使用后**即结束（而非到作用域尾），故很多看似冲突的代码能过。
+
+</details>
+
+3. `RefCell` 和编译期借用检查有何不同？借用冲突时会怎样？
+<details><summary>参考答案</summary>
+
+`RefCell` 把借用检查**推迟到运行时**，允许 `&self` 下改内部。冲突（如两次 `borrow_mut`）不是编译错误而是**运行时 panic**——用灵活性换崩溃风险。
+
+</details>
+
+4. 对比 `Rc` 与 `Arc`、`Rc<RefCell<T>>` 与 `Arc<Mutex<T>>`，各用在什么场景？
+<details><summary>参考答案</summary>
+
+`Rc` 非原子计数、非 **Send**，仅**单线程**；`Arc` 原子计数、可**跨线程**。共享可变时：单线程用 **`Rc<RefCell<T>>`**，多线程用 **`Arc<Mutex<T>>`**。跨线程传 `Rc` 编译期即被拒。
+
+</details>
+
+5. `async fn` 返回什么？为什么说它「惰性」，有哪两个高频坑？
+<details><summary>参考答案</summary>
+
+返回惰性 **Future**，**不 `.await`（或不交 executor）就不执行**。坑一：**忘记 await**，什么都不发生；坑二：**跨 await 持有非 Send 守卫**（`RefCell` borrow、`MutexGuard`）在多线程 executor 上报错或死锁。
+
+</details>

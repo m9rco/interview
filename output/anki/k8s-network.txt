@@ -1,0 +1,5 @@
+kube-proxy 从 iptables 到 ipvs 再到 eBPF，核心解决的是什么问题？	主线是转发搬回内核态 + 匹配从 O(N) 到 O(1) + 最终去 kube-proxy。iptables 规则是线性链表 O(N)，5000+ Service 时 sync 分钟级还可能丢包；ipvs 用 hash 表 O(1) 且支持真 LB 算法；eBPF 把转发做进 map，直接删掉 kube-proxy。
+Flannel VXLAN 和 Calico BGP 数据面原理有何本质区别？各适合什么场景？	Flannel VXLAN 是 Overlay 双封装（报文封成 UDP 走隧道），极简但性能损耗 ~10-15%、不支持 NetworkPolicy，适合中小集群快速起步。Calico BGP 用 BGP 广告 Pod CIDR 走宿主机路由表不封装，性能接近裸金属、支持 NetworkPolicy、跨机房友好，但需网络支持 BGP（不通则回退 IPIP）。
+为什么游戏 DS 战斗集群选 hostNetwork 直连而不是业界主流的 Overlay？	用 `hostNetwork: true` DaemonSet 让业务走宿主机 IP 直连，规避 K8s 网络组件频繁异常（Sidecar 时代真实痛点），跨集群走公司内网直连即可。代价是占用宿主机端口、调度需 `hostPort` 冲突检测。战斗进程还用 `podAntiAffinity` 强制一机一 Pod。
+异构混部要让 Pod 精准落到匹配节点，靠哪几个机制？	四把刀：Node Label 打标（arch/gpu/node_type）→ NodeSelector 硬约束 → Taint/Toleration 防普通 Pod 抢 GPU 节点 → Affinity/AntiAffinity 更强表达力。镜像用 `docker buildx` 构建多架构 manifest，Pull 时自动匹配 arm64/amd64。关键：别赖默认调度器。
+Sidecar Mesh 的 XDS 全量下发为什么会爆炸？怎么应对？	500 服务 × 10 Pod = 每个 Envoy 要下发 5000 个实例，控制面成本爆炸。应对：用 Sidecar CR 声明依赖只下发真正调用的服务、命名空间级隔离（workloadSelector+egress.hosts）、上 eBPF Cilium 去 Sidecar 把控制面成本降到近零、或把数据面 卸载到 DPU。

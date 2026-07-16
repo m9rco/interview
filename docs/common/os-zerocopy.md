@@ -123,6 +123,55 @@ flowchart LR
 - **DMA 让外设不占 CPU 搬数据；网卡收包硬中断(上半部)+软中断(下半部)，高负载看 si**
 - **Kafka 快 = 顺序写磁盘 + Page Cache + sendfile 零拷贝，而非不落盘**
 
+### 记忆口诀
+
+- **虚拟内存**：页表+MMU / TLB 加速 / 缺页才给物理页（惰性）/ fork 靠 COW
+- **切态贵**：特权级切换 / 上下文保存 / 缓存 TLB 污染 → 少切态
+- **拷贝次数**：传统 4拷4切 / mmap 省1拷 / sendfile 2切 / SG-DMA 2次DMA·CPU零参与
+- **零拷贝**：零的是"CPU 参与的用户↔内核冗余拷贝" / 前提是原样转发 / 加密压缩即失效
+
 ## 内容来源
 
 关键点整理自《Understanding the Linux Kernel》、Linux `man` 手册（`mmap(2)`/`sendfile(2)`/`splice(2)`/`fsync(2)`）、IBM DeveloperWorks 经典零拷贝文章与 Kafka 高性能设计文档重写为五段式。请以内核文档与 man page 为准。
+
+## 自测：合上资料能说清楚吗？
+
+1. 传统 `read()+write()` 下发文件到 socket 一共发生几次拷贝、几次上下文切换？哪几次是 CPU 拷贝？
+
+<details><summary>参考答案</summary>
+
+**4 次拷贝 + 4 次上下文切换**。DMA：磁盘→PageCache、Socket缓冲→网卡；**CPU：PageCache→用户缓冲、用户缓冲→Socket缓冲**（这两次纯浪费）。read/write 各引起 2 次切态。
+
+</details>
+
+2. "零拷贝"到底零掉了什么？为什么说它不是"一次都不拷"？
+
+<details><summary>参考答案</summary>
+
+零掉的是**CPU 参与的、用户态↔内核态之间的冗余拷贝**。**DMA 拷贝**（磁盘→内存、内存→网卡）依然存在，只是不占 CPU。前提是**数据原样转发**，需加密/压缩就失效。
+
+</details>
+
+3. 对比 `mmap+write` 与 `sendfile`：各省了什么、代价是什么、分别适合什么场景？
+
+<details><summary>参考答案</summary>
+
+**mmap+write**：省内核→用户那次拷贝（3拷4切），但有**缺页/TLB/映射开销**、多进程一致性坑，适合需在用户态访问数据。**sendfile**：数据全程不进用户态（2切），配 **SG-DMA** 达 CPU 零参与，适合**原样转发**（静态文件、Kafka）。
+
+</details>
+
+4. `write()` 返回成功是否等于数据已落盘？存储系统怎么兜底？
+
+<details><summary>参考答案</summary>
+
+**不等于**。write 成功只代表进了 **Page Cache**（write-back），掉电会丢。持久化必须调 **`fsync()`/`fdatasync()`** 强制刷盘（DB 的 WAL、MQ 持久化靠它），但 fsync 昂贵，常是**性能瓶颈**。
+
+</details>
+
+5. `malloc` 一大块内存后 RSS 却没涨，为什么？首次访问时发生了什么？
+
+<details><summary>参考答案</summary>
+
+**惰性分配（demand paging）**：malloc 只给虚拟地址，不立即分配物理页。首次访问触发**缺页中断**，内核才分配物理页并填页表，此时 RSS 才增长。fork 后的共享页则靠 **COW**，写时才复制。
+
+</details>

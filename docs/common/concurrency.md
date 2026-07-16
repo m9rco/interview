@@ -134,9 +134,59 @@ flowchart TB
 - **互联网后台**：请求彼此独立，DB 是瓶颈 → **协程池 + 连接池 + 异步刷盘**
 - **共同点**：**热点数据本地化**（NUMA aware / thread local / per-P cache），减少跨核共享
 
+### 记忆口诀
+
+- **三单位切换成本**：进程 µs（TLB+页表） / 线程 百ns（寄存器+内核栈） / 协程 十ns（栈指针）
+- **Go GMP**：G 用户协程 / M 内核线程 / P 逻辑处理器持本地 runq / Work-Stealing + Handoff + 信号抢占
+- **选型公式**：CPU 密集用进程线程池+Pin核 / I/O 密集用协程+epoll / 游戏用单线程无锁帧循环
+- **并发三坑**：死锁四条件破循环等待 / 伪共享填 64B / 协程泄漏用 context 超时
+
 ## 内容来源
 
 迁移自 guide/theme-concurrency（综合整理）
 
 > 综合整理：Go runtime 源码、Java Concurrency in Practice、Linux 内核调度器（2026-07）
+
+## 自测：合上资料能说清楚吗？
+
+1. 进程、线程、协程三者的切换成本为什么差一个数量级？各自切了什么？
+
+<details><summary>参考答案</summary>
+
+**进程**切 TLB+页表导致 cache/TLB 全冷（µs 级）；**线程**同地址空间只切**寄存器+内核栈**，省了页表（百 ns）；**协程**纯用户态只切**栈指针+少量寄存器**，不陷内核（十 ns）。
+
+</details>
+
+2. Go GMP 里 M 陷入阻塞 syscall 时会发生什么？为什么这样设计？
+
+<details><summary>参考答案</summary>
+
+触发 **Handoff**：P 与该 M **解绑**并绑到另一空闲/新建 M 继续跑本地 runq 的 G，避免一次阻塞 syscall 拖住整个 P 上的其他 goroutine。syscall 返回后原 M 尝试重新获取 P，拿不到则把 G 放回全局队列。
+
+</details>
+
+3. 什么是伪共享（False Sharing）？如何解决？
+
+<details><summary>参考答案</summary>
+
+两个变量落在**同一 64B cache line**，不同核分别写会互相 **invalidate** 缓存行，性能骤降。解法：**填充对齐到 64B**（Java `@Contended`、Go 手动 pad），让热点变量独占 cacheline。
+
+</details>
+
+4. 【对比】游戏世界服为什么用单线程无锁帧循环，而互联网后台用协程池+连接池？
+
+<details><summary>参考答案</summary>
+
+**游戏**世界状态高度耦合（AOE/扣血/buff），加锁开销和竞争反而慢，瓶颈在 **CPU 计算**，故单线程 tick 20~60Hz + 分服 sharding。**互联网**请求彼此独立、瓶颈在 **DB/IO**，故协程池并发扛连接 + 连接池复用 + 异步刷盘。
+
+</details>
+
+5. RWMutex 和 Mutex 如何选？RWMutex 有什么风险？
+
+<details><summary>参考答案</summary>
+
+**短临界区**首选 Mutex；**读多写少**用 RWMutex 提升并发读。风险是**写饥饿**——写者等待时禁止新读者，否则源源不断的读会让写永远拿不到锁；写少读极多也可考虑 **RCU**（读端零开销）。
+
+</details>
+
 

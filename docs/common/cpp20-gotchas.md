@@ -131,6 +131,50 @@ struct Point {
 - **`constinit` 防静态初始化顺序灾难；`consteval` 强制编译期求值**
 - **designated initializers 必须按声明顺序**
 
+### 记忆口诀
+
+- **四大件**：Concepts 约束 / Ranges 惰性视图 / Coroutines 协程 / Modules 模块
+- **Ranges 两坑**：非拥有→跨生命周期悬垂 / 惰性→每遍重跑管道，需结果就物化
+- **协程三律**：`co_*` 即协程 / 帧在堆上 / 引用参数挂起后悬垂→按值传
+- **太空船**：一写 `<=>` 得四关系 / 但 `==` 要单独 default / 浮点是 partial
+
 ## 内容来源
 
 关键点整理自 [cppreference](https://en.cppreference.com/)、ISO C++ 标准（N4861，C++20）、《C++20: The Complete Guide》（Nicolai Josuttis）与 [isocpp Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/) 重写为五段式。协程与 Ranges 悬垂问题参考社区共识（P2216/P2415 等提案讨论）。请以官方标准与 cppreference 为准。
+
+## 自测：合上资料能说清楚吗？
+
+1. 为什么把一个 `vec | views::filter(...)` 的结果存到成员变量、跨函数使用是危险的？如何规避？
+<details><summary>参考答案</summary>
+
+view **不拥有**数据，只持有对源容器的**引用/迭代器**；底层 `vec` 一销毁，view 就**悬垂**。规避：不要跨底层容器生命周期存储 view，需要独立结果就**物化**为 vector（`ranges::to` 或迭代器构造）。
+
+</details>
+
+2. 协程函数按引用传入参数，在第一个 `co_await` 挂起点之后使用它为什么可能崩？正确做法是什么？
+<details><summary>参考答案</summary>
+
+引用/指针参数**不会拷进协程帧**；挂起后调用方栈帧可能已返回，实参**悬垂**。做法：协程参数尽量**按值传**（会拷入堆上的帧），或确保实参活得够久。
+
+</details>
+
+3. 定义了 `operator<=>() = default` 后，`<`、`==` 分别是否可用？为什么这样设计？
+<details><summary>参考答案</summary>
+
+`<`/`>`/`<=`/`>=` **自动合成**可用；`==`/`!=` **不合成**，需单独 `operator== = default`。原因是**性能**：判等常有短路优化（先比 size），强用全序 `<=>` 做判等更慢。
+
+</details>
+
+4. 对比 `std::span` 与 `std::vector`：各自的所有权与悬垂风险有何不同？
+<details><summary>参考答案</summary>
+
+`vector` **拥有**并管理数据，生命周期自洽；`span` 是**非拥有**视图（指针+长度），只是别人数据的窗口，**悬垂风险同 Ranges view**——不能持有超过底层生命周期。span 适合做接口参数，不适合长期存储。
+
+</details>
+
+5. 为什么 C++20 有了协程语法，实战却常要引入 cppcoro/asio 等第三方库？
+<details><summary>参考答案</summary>
+
+C++20 只给了**底层原语**（`co_await`/promise 定制点），标准库**没有**开箱即用的 `task`/`generator`（`std::generator` 是 **C++23**）。要写可用的协程返回类型和调度，得靠第三方库或自己实现 promise。
+
+</details>

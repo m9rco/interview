@@ -1,0 +1,5 @@
+一次推理为什么要拆成 Prefill 和 Decode 两个阶段？各自的瓶颈是什么？	Prefill 并行处理整个 prompt、算 KV，瓶颈是算力；Decode 自回归逐 token，每步要把整个模型权重从显存搬一遍，瓶颈是显存带宽。这解释了量化为何直接提速。
+KV Cache 解决了什么问题？它的代价是什么，怎么省？	缓存已算的 K/V，每步只算新 token，复杂度 O(n²)→O(n)；代价是显存（长上下文/大 batch 常比权重还吃显存）。省法：GQA/MQA、KV 量化、PagedAttention 消碎片。
+对比 FlashAttention 与投机解码：它们分别优化什么？都是"近似"加速吗？	都无损（数学等价）。FlashAttention 是 IO-aware 分块 + online softmax，不落地 n×n 矩阵，省访存；投机解码用小模型猜 k 个 token、大模型并行 verify，省带宽、提 2~3x 速度。
+对比 RLHF 与 DPO：为什么 DPO 逐渐成主流？	RLHF 需奖励模型 + PPO 强化学习，效果强但流程复杂、易训崩；DPO 直接用偏好对做分类式优化，免奖励模型、免 RL，更稳更省，故成主流；追求上限再上 RLHF。
+"MoE 是免费的大模型" 这句话错在哪？	错。MoE 每 token 只激活 top-k 专家，省的是算力；但显存必须装下所有专家，且路由负载均衡与通信开销都是挑战——省算力不省显存。

@@ -6,6 +6,10 @@ title: DNS 清洗拦截与 CoreDNS
 
 > DNS 拦截可以发生在三个层次——应用层解析器、CoreDNS 插件链、内核态（XDP-eBPF / netfilter）。本文讲清各层的取舍、内核态为什么快、CoreDNS 的插件化架构，以及为什么它取代了 kube-dns / dnsmasq。
 
+::: tip 一句话结论
+XDP 挡洪水、CoreDNS 插件链做策略、应用层兜底——分层协同各司其职。
+:::
+
 ## 场景问题
 
 无论是**安全清洗**（拦截恶意域、纠正污染）还是**基础设施解析**（K8s 集群内 Service 发现），我们都需要在 DNS 链路上"插一脚"：对某些查询直接返回预设答案、阻断、改写或转发到不同上游。
@@ -168,6 +172,55 @@ sequenceDiagram
 4. **取代 kube-dns/dnsmasq 的理由**：插件化扩展、Go 生态同源、原生指标——用一句话记：**"配置即插件，观测即内建"**。
 5. **清洗策略骨架**：来源 ACL → 黑名单 sinkhole → 白名单/内网权威 → 上游转发+缓存+污染纠正。
 
+### 记忆口诀
+
+**三层**：XDP 挡洪水 / CoreDNS 做策略 / hosts 兜底
+**内核快**：免拷贝 / sk_buff 前决策 / map O(1) / NIC offload
+**CoreDNS**：单二进制 / 插件链 / Corefile 编排 / prometheus 内建
+**取代理由**：配置即插件 / 观测即内建 / Go 同源
+
 ## 内容来源
 
 综合整理。主要参考方向：CoreDNS 官方文档与插件手册（Corefile、plugin.cfg 链序、forward/cache/hosts/rewrite/template/acl/kubernetes 插件）、Linux 内核 XDP/eBPF 文档（`Documentation/networking/`、eBPF verifier 与 XDP action）、Kubernetes 集群 DNS 演进（kube-dns → CoreDNS）设计说明、RPZ（Response Policy Zone）规范。
+
+## 自测：合上资料能说清楚吗？
+
+DNS 拦截的三个层次分别在哪里、各自擅长与局限是什么？
+
+<details><summary>参考答案</summary>
+
+**应用层解析器**（进程/本机）：灵活、hosts 覆盖，但只影响本机无集中管控；**CoreDNS 插件链**（用户态）：复杂策略、可观测、可编排，但用户态拷贝吞吐上限低；**内核态 XDP/eBPF**（网卡驱动）：极高 PPS、抗 DDoS，但表达能力弱、调试门槛高。
+
+</details>
+
+为什么内核态（XDP）拦截 DNS 比用户态快？请说出关键机制。
+
+<details><summary>参考答案</summary>
+
+四点：**① 绕过用户态拷贝**（不经 socket、无 copy_to_user）；**② 早期丢包**——在 `sk_buff` 分配、协议栈遍历之前决策，省最贵的内存分配与栈处理；**③ map 查表 O(1)**；**④ 可 NIC offload**。因此清洗洪水每核可达千万 PPS 级。
+
+</details>
+
+CoreDNS 的插件链是怎么工作的？其顺序由什么决定？
+
+<details><summary>参考答案</summary>
+
+一次查询像**流水线**依次经过 Corefile 声明的插件，每个插件可处理返回或透传下一个。链序在**编译期由 `plugin.cfg` 固定优先级**决定，**不是** Corefile 书写顺序。常用：`acl/hosts/rewrite/kubernetes/cache/forward/template`。
+
+</details>
+
+对比 CoreDNS 与 kube-dns / dnsmasq，为什么 K8s 选 CoreDNS 作默认集群 DNS？
+
+<details><summary>参考答案</summary>
+
+**kube-dns** 是 dnsmasq+kube-dns+sidecar 三容器拼装，职责分散、可观测差；**dnsmasq** 面向家用、扁平配置无插件、无原生 Service 发现。**CoreDNS** 单二进制+插件化，加能力只需启用一插件，原生 Prometheus 指标，Go 生态与 K8s 同源——「配置即插件，观测即内建」。
+
+</details>
+
+一条完整的 DNS 清洗策略链应包含哪些环节？
+
+<details><summary>参考答案</summary>
+
+骨架：**来源 ACL**（非法源 REFUSED）→ **黑名单 sinkhole/NXDOMAIN**（hosts/RPZ）→ **白名单/内网权威**（kubernetes Service 解析）→ **上游 forward + cache + 污染纠正**（交叉验证不一致则从 DoH/DoT 可信上游重取）。
+
+</details>

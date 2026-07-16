@@ -183,6 +183,51 @@ struct BloomFilter {
 - **Q：布隆过滤器怎么定 m 和 k？** A：给定 n 和目标假阳率 p，`m = -n·ln p /(ln2)²`，`k = (m/n)·ln2`；经验 ~10 bit/元素 ≈ 1%。
 - **Q：LSM 为什么写快、读可能慢？** A：写只追加 memtable/WAL（顺序 IO）；读要查 memtable + 多层 SSTable，靠布隆过滤器 + 分层 compaction 降读放大。
 
+### 记忆口诀
+
+- **一致性哈希**：Ring 撒虚拟节点 / Jump 零内存但只能尾部增删 / Maglev 查表 O(1) / 三者都只迁 1/N
+- **布隆过滤器**：K 哈希置位 / 有 0 一定没有 / 全 1 可能有 / ~10 bit ≈ 1% 假阳 / 防缓存穿透
+- **存储引擎树**：写多落盘想 LSM / 磁盘索引想 B+ / 有序范围想跳表 / 校验反熵想 Merkle
+- **概率数据结构**：HyperLogLog 数基数 / 12 KB 算十亿 UV / 误差 <1%
+
 ## 内容来源
 
 综合整理：Google Maglev / Jump Consistent Hash 论文、Redis / RocksDB 公开资料、《数据结构与算法分析》。代码为教学示意，生产请用成熟库（哈希用 xxhash/murmur）。
+
+## 自测：合上资料能说清楚吗？
+
+1. 为什么一致性哈希扩缩容只迁移 1/N 的 key？取模分片相比之下差在哪？
+   <details><summary>参考答案</summary>
+
+环上新增节点**只接管逆时针到前一节点的一小段区间**，其余不动，故约 **1/N**。取模 `hash%N` 在 N 变化时**几乎全部 key 重映射**，缓存整体失效。一致性哈希还靠**虚拟节点**保证分布均衡。
+
+</details>
+
+2. 对比 Ring Hash、Jump Consistent Hash、Maglev 三者的取舍。
+   <details><summary>参考答案</summary>
+
+**Ring**：靠虚拟节点、O(log NV)、内存 O(NV)，能任意增删节点。**Jump**：**零内存**、分布最均、O(log N)，但 bucket 必须连续整数、**只能尾部增删**。**Maglev**：查表 **O(1)**、内存 O(M)，用于 L4 负载均衡。
+
+</details>
+
+3. 布隆过滤器为什么能防缓存穿透？它会漏判吗？
+   <details><summary>参考答案</summary>
+
+DB 都没有的 key 先被布隆**直接拒**，不打到 DB。**无 False Negative**（说没有一定没有），故不会漏放；但有 **False Positive**（说有可能没有）。经验 **~10 bit/元素 ≈ 1% 假阳**，最优 `k=(m/n)·ln2`。
+
+</details>
+
+4. LSM Tree 为什么写快、读可能慢？靠什么优化读？
+   <details><summary>参考答案</summary>
+
+写只**顺序追加** memtable/WAL，故快；读要查 memtable + **多层 SSTable**，故慢。靠**布隆过滤器**（跳过没有 key 的层）+ **分层 compaction** 降低读放大。适合写多读少场景。
+
+</details>
+
+5. HyperLogLog 用 12 KB 估算十亿量级基数的原理是什么？
+   <details><summary>参考答案</summary>
+
+hash 值**分桶**，每桶记录**前导 0 的最大个数** k，"连中 k 个正面 → n≈2^k"，多桶取调和平均降方差。**极小内存**（12 KB）、误差 **<1%**。Redis `PFADD/PFCOUNT` 即此。
+
+</details>
+
