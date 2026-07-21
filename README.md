@@ -29,6 +29,15 @@ npm run docs:build:cos    # COS 目标（base=/，绑定自定义域名）
 
 > 依赖 Node.js（本地 v20 可用；CI 用 v22）。
 
+## 质量检查
+
+```bash
+npm run check:md         # 拦截会让 VuePress 构建失败的缩进块级 HTML（<details>/<summary>）
+npm run check:structure  # 校验五段式 + 记忆锚点模板
+```
+
+> `npm install` 会自动启用 `.githooks/pre-commit`（`core.hooksPath`），提交涉及 `docs/*.md` 时先跑 `check:md`；`check:md` 也是 CI 构建前的快速门禁，避免坏格式发布到 Pages。临时跳过钩子：`git commit --no-verify`。
+
 ## 发布
 
 - **GitHub Pages（主）**：push 到 `main` 由 `.github/workflows/deploy.yml` 自动构建并发布。

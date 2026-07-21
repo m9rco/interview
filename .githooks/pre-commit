@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+# 拦截会让 VuePress 构建失败的 Markdown 内联 HTML（缩进的 <details>/<summary>）。
+# 仅当本次提交涉及 docs/ 下的 .md 文件时才运行，避免拖慢无关提交。
+#
+# 启用方式：仓库根目录执行 `npm install`（会自动设置 core.hooksPath），
+# 或手动 `git config core.hooksPath .githooks`。
+
+staged_md=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^docs/.*\.md$' || true)
+if [ -z "$staged_md" ]; then
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[pre-commit] 未找到 node，跳过 Markdown HTML 检查。" >&2
+  exit 0
+fi
+
+node scripts/lint-md-html.js
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "" >&2
+  echo "[pre-commit] 提交被拦截：请修复上面的缩进块级 HTML 后重试。" >&2
+  echo "[pre-commit] 如需临时跳过：git commit --no-verify" >&2
+fi
+exit "$status"

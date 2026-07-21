@@ -30,6 +30,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Lint Markdown HTML (fail fast on build-breaking patterns)
+        run: npm run check:md
+
       - name: Build (Pages, base=/interview/)
         run: npm run docs:build:pages
 
