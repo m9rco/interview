@@ -176,35 +176,40 @@ int splitArray(const std::vector<int>& a, int m) {
 ## 自测：合上资料能说清楚吗？
 
 1. 能用二分的前提到底是什么？只有"数组有序"才行吗？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 本质是**存在单调判定条件**（可行→不可行有明确分界），有序数组只是特例。答案空间上"小于阈值都不行、大于都行"即可**二分答案**。
 
 </details>
 
 2. 写二分只需盯死哪两点，为什么它们决定了对错？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 ①**区间定义**（闭 `[lo,hi]` 还是半开 `[lo,hi)`）；②**循环条件与收缩方向**要与区间定义一致。二者不匹配是**死循环、越界、差一**的根源。
 
 </details>
 
 3. 对比"找确定值"模板与"找左边界"模板：循环条件与 `hi` 收缩为何不同？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 找确定值用**闭区间** `lo<=hi`、`hi=mid-1`；找左边界用**半开** `lo<hi`、`hi=mid`（不减一，保留可能答案）。终止时 `lo==hi` 即边界，**天然无差一**。
 
 </details>
 
 4. 旋转有序数组里怎么判断该往哪半走？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 mid 分两半必有**至少一半有序**。比较 `a[lo]<=a[mid]` 定位有序半，再看 target 是否落在该半的值域内，决定收缩方向。
 
 </details>
 
 5. 什么信号提示该用"二分答案"？check 有什么硬性要求？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 信号：**最大化最小值 / 最小化最大值 / 第 K 小**。要求 `check(x)` 对答案**单调**；不单调则二分结论无意义，须先证单调，check 通常 O(n)。
 

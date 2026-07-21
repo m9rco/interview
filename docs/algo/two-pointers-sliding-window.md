@@ -182,35 +182,40 @@ std::string minWindow(const std::string& s, const std::string& t) {
 ## 自测：合上资料能说清楚吗？
 
 1. 双指针为什么能把 O(n²) 的枚举压成 O(n)？它依赖什么前提？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 依赖**单调性**（数组**有序**或窗口扩缩时条件单调变化），使两个指针**各自只增不减、最多各走一遍**，总移动 ≤ 2n。前提破坏则不适用。
 
 </details>
 
 2. 对撞指针与滑动窗口有何区别？各自适用什么场景？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **对撞指针**：两端向中间逼近，用于**有序数组找一对元素**（两数之和、盛水）。**滑动窗口**：同向双指针维护**连续区间**，用于子串/子数组的最值或计数。前者靠数组有序，后者靠窗口条件单调。
 
 </details>
 
 3. 快慢指针判环后，如何找到环的入口？为什么成立？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 相遇后让**一指针回到头节点**，两指针**同速各走 1 步**，再次相遇即入口。因**头到入口的距离 = 相遇点绕环回入口的距离**（数学等距关系）。
 
 </details>
 
 4. 变长滑窗的通用模板是什么？定长窗口有何不同？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 变长：**右扩更新状态 → `while(合法/超标){更新答案; 左缩}`**。定长：固定 `r-l+1==k` 时更新答案并**同步右移左右指针**，无需 while 收缩。
 
 </details>
 
 5. 求"和为 k 的连续子数组个数"，含负数时为什么不能用滑窗？改用什么？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 含负数时窗口和**不随长度单调变化**，扩缩无法判断方向，滑窗失效。改用**前缀和 + 哈希表**记录各前缀和出现次数，O(n) 统计。
 

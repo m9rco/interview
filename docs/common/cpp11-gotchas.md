@@ -261,35 +261,40 @@ std::shared_ptr<Foo> b(new Foo(x));  // ✗ 两次分配；且异常安全性差
 ## 自测：合上资料能说清楚吗？
 
 1. `std::move(x)` 到底做了什么？之后 `x` 处于什么状态、还能怎么用？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 `move` 只是 `static_cast<T&&>`，**本身不搬运**任何东西；真正的移动发生在随后的移动构造/赋值。之后 `x` 进入**有效但未指定**状态：可**析构**、可**重新赋值**，但**不能假设其值**。
 
 </details>
 
 2. 模板 `void f(T&& arg)` 传一个左值会发生什么？和普通右值引用有何区别？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 这是**转发引用**（发生类型推导），非右值引用。传左值时 `T` 推导为 `U&`，经**引用折叠** `&+&&→&`，`T&&` 变 `U&`，故能**收左值**。普通右值引用（无推导）只绑右值。
 
 </details>
 
 3. 为什么移动构造/赋值必须标 `noexcept`？不标会怎样？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 `vector` 扩容为保证**强异常安全**，若移动可能抛异常则退回用**拷贝**搬迁元素。不标 `noexcept` → 移动优化直接失效，退化为 `O(n)` 深拷贝。
 
 </details>
 
 4. `shared_ptr` 和 `weak_ptr` 各解决什么问题？请对比它们在打破循环引用时的作用。
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 `shared_ptr` **引用计数共享所有权**，双向互持会让计数永不归零 → **泄漏**。`weak_ptr` **不增计数**，仅观察，用 `lock()` 提升。规避：让「回指」一方改用 `weak_ptr` **打破环**。
 
 </details>
 
 5. 返回局部对象时该不该写 `return std::move(local)`？为什么？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **不该**。编译器会做 **RVO/NRVO**，直接在返回位置构造，零拷贝。写 `move` 反而**抑制返回值优化**，把可省略的构造变成一次移动构造，得不偿失。
 

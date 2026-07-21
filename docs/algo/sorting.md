@@ -210,35 +210,40 @@ void heapSort(vector<int>& a) {
 ## 自测：合上资料能说清楚吗？
 
 1. 拿到一个排序需求，你会先反问哪几件事？为什么这几问决定了选型？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 问四件事：**数据规模**、**是否近乎有序**、**是否大量重复**、**要不要稳定**。规模小选 **O(n²) 插入**（常数小）；近乎有序时插入退化到 **O(n)**；大量重复用**三路快排**；有稳定诉求用**归并**。
 
 </details>
 
 2. `std::sort` 底层到底做了什么？它凭什么在各种输入下都不塌方？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **introsort**：快排为主，递归深度超 **2·log n** 转**堆排**兜底防最坏 O(n²)，小区间（<16）转**插入排序**收尾。混合策略在有序 / 全等 / 随机输入上都保持 **O(n log n)**。
 
 </details>
 
 3. 快排和归并都是 O(n log n)，对比二者：什么时候必须用归并而不能用快排？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **归并**：稳定、O(n) 辅助空间、适合**链表/外排**（顺序访问）。**快排**：原地、缓存友好、常数更小但不稳定、最坏 O(n²)。需要**稳定排序**（多关键字）或排**链表**（无随机访问）时只能归并。
 
 </details>
 
 4. 面对全是重复元素的数组，普通快排为什么退化？三路划分怎么救？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 普通快排把等值元素反复交换且**划分极不均**，趋向 **O(n²)**。**三路划分**（荷兰国旗）用 lt/i/gt 把数组切成 `<pivot | ==pivot | >pivot`，**等值区一次性排除**、不再递归，重复多时接近 **O(n)**。
 
 </details>
 
 5. 求「数组第 K 大」，堆和快速选择各怎么做？各自复杂度？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **快速选择**：借快排划分只递归一侧，期望 **O(n)**、最坏 O(n²)。**size=K 最小堆**：遍历维护 K 个最大元素，**O(n log K)**、空间 O(K)，适合数据流 / K 远小于 n。
 

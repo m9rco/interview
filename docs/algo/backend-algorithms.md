@@ -197,35 +197,40 @@ struct BloomFilter {
 ## 自测：合上资料能说清楚吗？
 
 1. 为什么一致性哈希扩缩容只迁移 1/N 的 key？取模分片相比之下差在哪？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 环上新增节点**只接管逆时针到前一节点的一小段区间**，其余不动，故约 **1/N**。取模 `hash%N` 在 N 变化时**几乎全部 key 重映射**，缓存整体失效。一致性哈希还靠**虚拟节点**保证分布均衡。
 
 </details>
 
 2. 对比 Ring Hash、Jump Consistent Hash、Maglev 三者的取舍。
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 **Ring**：靠虚拟节点、O(log NV)、内存 O(NV)，能任意增删节点。**Jump**：**零内存**、分布最均、O(log N)，但 bucket 必须连续整数、**只能尾部增删**。**Maglev**：查表 **O(1)**、内存 O(M)，用于 L4 负载均衡。
 
 </details>
 
 3. 布隆过滤器为什么能防缓存穿透？它会漏判吗？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 DB 都没有的 key 先被布隆**直接拒**，不打到 DB。**无 False Negative**（说没有一定没有），故不会漏放；但有 **False Positive**（说有可能没有）。经验 **~10 bit/元素 ≈ 1% 假阳**，最优 `k=(m/n)·ln2`。
 
 </details>
 
 4. LSM Tree 为什么写快、读可能慢？靠什么优化读？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 写只**顺序追加** memtable/WAL，故快；读要查 memtable + **多层 SSTable**，故慢。靠**布隆过滤器**（跳过没有 key 的层）+ **分层 compaction** 降低读放大。适合写多读少场景。
 
 </details>
 
 5. HyperLogLog 用 12 KB 估算十亿量级基数的原理是什么？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 hash 值**分桶**，每桶记录**前导 0 的最大个数** k，"连中 k 个正面 → n≈2^k"，多桶取调和平均降方差。**极小内存**（12 KB）、误差 **<1%**。Redis `PFADD/PFCOUNT` 即此。
 
