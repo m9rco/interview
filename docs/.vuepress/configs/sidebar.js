@@ -4,7 +4,7 @@ export const sidebar = {
   '/intro/': [
     {
       text: '个人经历 & 后台通用心法',
-      children: ['/intro/README.md'],
+      children: ['/intro/README.md', '/intro/self-intro-narrative.md'],
     },
   ],
 
