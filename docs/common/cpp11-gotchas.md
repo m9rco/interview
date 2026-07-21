@@ -301,35 +301,40 @@ std::shared_ptr<Foo> b(new Foo(x));  // ✗ 两次分配；且异常安全性差
 </details>
 
 6. 虚函数是怎么实现运行期多态的？为什么在构造函数里调虚函数不会分派到派生类？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 含虚函数的类有一张 **vtable**（每类一张，存函数指针），每个对象头部有 **vptr** 指向它。`p->f()` 先取 `p->vptr` 查表拿实际地址再调，实现动态分派。**构造期** vptr 还指向当前正在构造的这层（派生部分未初始化），所以只调到当前类版本，不会分派到派生类；析构期 vptr 已退回基类，同理。
 
 </details>
 
 7. 基类析构函数不声明 `virtual`，`delete` 一个基类指针指向的派生对象会怎样？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 只会调用**基类析构**，派生类析构**不执行**，派生类持有的资源泄漏，标准规定为**未定义行为**。规则：类打算被继承并通过基类指针删除时，析构必须 `virtual`；不做多态基类则不加（省一个 vptr）。
 
 </details>
 
 8. `shared_ptr` 的引用计数存在哪里？它线程安全吗？`make_shared` 相比 `new` 有什么优势？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 计数在堆上的**控制块**（强计数+弱计数），增减是**原子操作**、线程安全；但**所指对象本身不是线程安全**的，多线程改同一对象仍要加锁。`make_shared` **一次分配**同时放对象和控制块——少一次 malloc、cache 友好、异常安全；代价是 `weak_ptr` 存活会连带对象内存不释放。
 
 </details>
 
 9. `vector` 扩容时迭代器/指针为什么会失效？如何避免反复失效？
-   <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 `push_back` 超容量时 `vector` 申请更大内存（GCC 2×、MSVC 1.5×）、**搬迁元素**、释放旧内存，指向旧内存的迭代器/指针/引用**全部失效**。边遍历边 push_back 或缓存 `&v[0]` 后扩容都是 UB。预知规模先 `reserve(n)` 一次到位，避免反复扩容与失效。
 
 </details>
 
 10. `map` 和 `unordered_map` 底层结构、复杂度、适用场景分别是什么？
-    <details><summary>参考答案</summary>
+
+<details><summary>参考答案</summary>
 
 `map`=**红黑树**，增删查 **O(log n)**、**有序**，支持范围查询、最坏复杂度稳定。`unordered_map`=**哈希桶**，均摊 **O(1)** 但常数大、无序、rehash 有抖动、最坏可退化。**要有序/范围查询用 map；只要快速查找用 unordered_map**。
 
