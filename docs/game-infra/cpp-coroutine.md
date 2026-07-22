@@ -38,6 +38,65 @@ graph TD
 - **有栈协程（Stackful）**：每个协程分配一条**独立完整的调用栈**（如 libco 默认 128KB）。挂起 = 保存当前 CPU 寄存器（含栈指针 SP、指令指针）到协程结构，切到另一条栈。因为有自己的栈，**可以在任意嵌套函数的深处挂起**（`f()→g()→h()` 里 `h` 想 yield 直接 yield）。代表：libco、boost.context、ucontext、fcontext。
 - **无栈协程（Stackless）**：把协程函数**改写成一个状态机**，局部变量和"当前执行到哪一步"打包成一个**定长帧（coroutine frame）**，大小固定。挂起 = 记住状态机走到第几步、保存几个字段，**没有独立栈**。因此**只能在显式挂起点挂起**，深调用栈里的挂起必须靠层层传递上来。这个"状态机 + 无独立栈"的思路**并非 C++20 才有**——早在 C++11/C++03 就能用 **Duff's device 宏技巧**手写（Protothreads、Boost.Asio 的 `asio::coroutine`）；C++20 只是让**编译器自动、类型安全地**生成这套状态机。代表：C++11 宏状态机（手写）、C++20 原生协程（编译器生成）。
 
+### 认知纠偏：协程不是"轻量级线程"，而是取代异步状态机的数据结构
+
+把协程类比成线程，是最常见也最误导的理解。**线程**回答的是"这段代码在**哪个执行单元、哪个核**上跑"——它是**并发/并行模型**，由操作系统调度、可真并行。**协程**（尤其无栈协程）本身**不带调度器、不带并行**：一个协程能不能并发跑，取决于把它挂到什么 executor/runtime 上。协程自己只是"能暂停和恢复的函数"。用线程类比，会把"调度、并行"这些**运行时才提供的东西**误当成协程的语言特性。
+
+协程真正取代的，是**手写的异步状态机**。看一段典型异步流程的回调地狱：
+
+```cpp
+read_async(sock, [=](auto data) {
+    parse_async(data, [=](auto req) {
+        query_db_async(req, [=](auto row) {
+            write_async(sock, row, [=]{ /* done */ });
+        });
+    });
+});
+```
+
+不用回调、自己手写，就会得到一个**显式状态机**——注意它的三个组成部分，恰好就是编译器为协程生成的东西：
+
+```cpp
+struct Handler {
+    enum State { Reading, Parsing, Querying, Writing } state; // ← 挂起点 / 恢复跳转
+    Buffer buf; Request req; Row row;   // ← 跨挂起点存活的局部变量（协程帧的内容）
+    void on_event() {                   // ← coroutine_handle::resume()
+        switch (state) {
+            case Reading:  /* 存 buf; state=Parsing;  发起 parse */  break;
+            case Parsing:  /* 存 req; state=Querying; 发起 query */  break;
+            case Querying: /* 存 row; state=Writing;  发起 write */  break;
+            case Writing:  /* 完成 */                                break;
+        }
+    }
+};
+```
+
+| 手写异步状态机 | 编译器为协程生成的 |
+|---|---|
+| `enum State` + `switch` | 挂起点（suspend point）+ 恢复时的跳转 |
+| 跨状态保存的成员 `buf/req/row` | **协程帧（coroutine frame）** 里保存的局部变量 |
+| `on_event()` 被事件循环重新调用 | `coroutine_handle::resume()` |
+
+协程干的事，就是**让编译器把线性写下来的代码自动切成这台状态机**——上面的 `Handler` 等价于:
+
+```cpp
+task<void> handle(Socket sock) {
+    auto data = co_await read_async(sock);   // 挂起点：局部变量 data 搬进协程帧
+    auto req  = co_await parse_async(data);
+    auto row  = co_await query_db_async(req);
+    co_await write_async(sock, row);
+}
+```
+
+代码是**顺序、可读**的，但编译后与手写 `switch` 状态机等价。这正呼应了前面"无栈 = 定长帧 = 状态机"的本质。
+
+::: tip 一句话拨正
+- **线程**：这段代码在哪个执行单元/核上跑？——是**并发模型**（谁来跑）。
+- **协程**：被 `co_await` 打断的逻辑，中间状态存在哪、怎么恢复？——是**代码变换 / 数据结构**（怎么存、怎么续）。
+
+一个挂起的协程 = 堆上一块内存（帧），存着"执行到哪、局部变量是什么"；`resume()` 就是把这块数据结构再驱动一步。**谁调用 `resume()`、何时、在哪个线程——协程一概不管，那是 runtime 的事。** 有栈协程（goroutine/libco）自带栈、看着像线程，容易强化错误类比；无栈协程把"它只是个状态机"暴露得最清楚：没有 runtime，协程连自己都跑不起来。
+:::
+
 ### 有栈协程：libco 风格（C++11 时代自研）
 
 libco 的杀手锏是 **hook 系统调用**：把 `read`/`write`/`connect`/`sleep` 等阻塞系统调用替换成协程感知的版本——调用时若会阻塞，就**自动把 fd 注册到 epoll 并让出协程**，数据就绪后再切回来。这样**老的同步阻塞代码一行不改**，链接进 libco 就自动变成协程化的非阻塞代码。
@@ -223,6 +282,14 @@ graph BT
 综合整理。参考资料：微信 libco 开源项目及其 hook 系统调用设计文档、boost.context / boost.coroutine2 文档、Linux `ucontext(3)` 手册、Simon Tatham *Coroutines in C*（Duff's device 无栈协程）、Adam Dunkels 的 Protothreads、Boost.Asio `coroutine`（`reenter`/`yield`/`fork` 宏）、C++20 标准 `[coroutine]` 章节与 cppreference `std::coroutine_handle`/`promise_type`、Lewis Baker 的 C++ Coroutines 系列文章，以及 "What Color is Your Function?"（Bob Nystrom）关于函数染色的经典论述。
 
 ## 自测：合上资料能说清楚吗？
+
+为什么说"不该把协程和多线程做类比"？协程真正取代的是什么？
+
+<details><summary>参考答案</summary>
+
+因为**线程是并发/并行模型**（回答"代码在哪个执行单元、哪个核上跑"，由 OS 调度、可真并行），而**协程本身不带调度器、不带并行**——它只是"能暂停/恢复的函数"，能否并发取决于挂到什么 runtime 上。协程真正取代的是**手写的异步状态机**：回调地狱手写出来就是 `enum State` + `switch` + 跨状态保存的成员变量，这三者恰好对应编译器生成的**挂起点 + 帧里的局部变量 + `resume()`**。所以协程是**代码变换 / 数据结构**（中间状态存哪、怎么恢复），不是执行模型。一个挂起的协程 = 堆上一块存着"执行到哪、局部变量是什么"的帧，`resume()` 把它再驱动一步。
+
+</details>
 
 协程的所有分歧都归结到哪一个问题？有栈和无栈分别把"执行现场"存在哪里？
 
