@@ -1,4 +1,4 @@
-自研 Mesh 的心跳广播和 Gossip 到底是不是一回事？它们的取舍方向有什么本质区别？	不是。代码是全连接网格 + 单跳全量广播：收包只更新本地路由表、不再转发，组包只装本机实例。Gossip 用 O(W) 连接换 O(log N) 跳数；自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数，取舍方向恰好相反。
+自研 Mesh 的心跳广播和 Gossip 到底是不是一回事？它们的取舍方向有什么本质区别？	是 gossip 家族的退化特例，但不是教科书 SWIM。代码是全连接网格 + 单跳全量广播：收包只更新本地路由表、不再转发，组包只装本机实例，且砍掉了 incarnation/间接探测。Gossip 用 O(W) 连接换 O(log N) 跳数；自研 Mesh 把 fanout 拉满，用 O(N) 连接换 O(1) 收敛跳数，取舍方向恰好相反。（逐行代码与砍掉的 SWIM 组件见 [Raft & Gossip · nzmesh 实战](./raft-gossip.md)）
 为什么全互联下连接数还能均衡？calc_connect 怎么决定"谁主动连"？	TCP 全双工，两节点只需 1 条链路。朴素"大 IP 连小 IP"会让连接数极度倾斜。calc_connect 用 IP 末位 bit 异或的公认随机值：异或值双方算出必然一致且 0/1 各 50% 均匀。实测 5000 节点最大连接差仅 0.37%。
 业务 Pod 是怎么连到本机 mesh 的？为什么不用 UDS？	靠 hostNetwork + hostIP 注入：mesh DaemonSet 监听宿主机 `0.0.0.0:8000`，业务经 Downward API 拿到 `HOST_IP`，用 `HOST_IP:8000` 直接命中本机 mesh，流量不走 Overlay。本机 msc 接业务走的是消息总线共享内存 channel，不是 UDS。
 对比 Sidecar 与 DaemonSet 两种部署模型，为什么放弃 Sidecar？	Sidecar：每 Pod 一个 mesh，多 Pod 互联单实例近 1GB 内存，10 Pod 节点要 10GB，且 K8s 网络组件频繁异常。DaemonSet：一机一 mesh 所有 Pod 共享，连接数大幅收敛、内存/CPU 省、用主机网络跳出 Overlay。故弃 Sidecar 用 DaemonSet。

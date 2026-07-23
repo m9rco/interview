@@ -191,3 +191,5 @@ Sidecar Mesh 的 XDS 全量下发为什么会爆炸？怎么应对？
 ## 内容来源
 
 迁移自 guide/theme-k8s-network（综合整理）
+
+> 相关专题：kube-proxy 背后的 **eBPF 数据面原理**（verifier/JIT/XDP、如何 O(1) 取代 iptables）详见 [eBPF](./ebpf.md)；CNI 三流派实现详见 [CNI 网络插件](./cni-plugins.md)。

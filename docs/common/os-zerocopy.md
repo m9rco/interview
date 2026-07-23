@@ -134,6 +134,8 @@ flowchart LR
 
 关键点整理自《Understanding the Linux Kernel》、Linux `man` 手册（`mmap(2)`/`sendfile(2)`/`splice(2)`/`fsync(2)`）、IBM DeveloperWorks 经典零拷贝文章与 Kafka 高性能设计文档重写为五段式。请以内核文档与 man page 为准。
 
+> 相关专题：**零拷贝**（sendfile/splice/mmap/SG-DMA）以本篇为唯一详解；**epoll/IO 多路复用**详见 [LVS + epoll](../internet/lvs-epoll.md)，**TCP 协议与 socket 编程**详见 [TCP 网络](../internet/tcp-net.md)。
+
 ## 自测：合上资料能说清楚吗？
 
 1. 传统 `read()+write()` 下发文件到 socket 一共发生几次拷贝、几次上下文切换？哪几次是 CPU 拷贝？

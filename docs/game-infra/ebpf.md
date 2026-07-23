@@ -327,6 +327,8 @@ eBPF 不是银弹,verifier 的约束很硬:早期内核不支持无界循环(需
 
 综合整理。参考方向:Linux 内核 eBPF/BPF 官方文档(`Documentation/bpf/`)、Cilium 与 Hubble 官方文档、`bpftrace`/BCC 项目文档、libbpf + CO-RE 相关资料,以及《BPF Performance Tools》(Brendan Gregg)等分布式/系统工程书籍的原理章节。
 
+> 相关专题：eBPF 取代 kube-proxy 的 **iptables O(N) → eBPF O(1) 演进对比**详见 [K8s 网络](./k8s-network.md)（本篇聚焦 eBPF 引擎本身：verifier/JIT/Map/XDP），不重复展开 kube-proxy 模式对比。
+
 ## 自测：合上资料能说清楚吗？
 
 eBPF 靠哪几个机制做到"在内核里跑用户代码却不会崩内核"？

@@ -51,6 +51,8 @@ function collectDocs(dir) {
     if (entry === 'README.md') continue;
     if (entry.endsWith('.cards.md')) continue;
     if (entry === 'dependency-map.md' || entry === 'learning-paths.md') continue;
+    // self-intro-narrative 是叙事体自我介绍稿，刻意不走五段式模板，豁免结构检查。
+    if (entry === 'self-intro-narrative.md') continue;
     out.push(full);
   }
   return out;

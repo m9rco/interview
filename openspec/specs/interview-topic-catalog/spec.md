@@ -6,12 +6,19 @@
 ## Requirements
 ### Requirement: 专题目录
 
-复习中心 MUST 涵盖以下 13 个专题，且每个专题 MUST 满足其"关键知识点必含项"清单，作为内容验收的最低门槛。
+复习中心 MUST 覆盖 6 个内容域，每个域下的每个专题 MUST 满足"关键知识点必含项"清单，作为内容验收的最低门槛。首批 13 个专题（`intro`、`business-proxy`、`xmesh-k8s`/`self-mesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`）的必含项清单持续有效；`agent-dev` 已迁入 `/ai-llm/` 域（见 `ai-llm-catalog`）。
 
-#### Scenario: 全部 13 个专题都存在
+#### Scenario: 六大域齐备且专题接入导航
 
-- **WHEN** 检查 `THEMES` 数组
-- **THEN** 数组包含以下 13 个 `id`：`intro`、`business-proxy`、`xmesh-k8s`、`rate-limit`、`redis`、`k8s-network`、`agent-dev`、`concurrency`、`tcp-net`、`gc-stw`、`algo-ds`、`design-model`、`release-strategy`
+- **WHEN** 检查 `docs/` 目录与 `docs/.vuepress/configs/sidebar.js`
+- **THEN** 存在 6 个内容域：`algo`、`common`、`internet`、`game-infra`、`game-biz`、`ai-llm`
+- **AND** 每个域下的每个专题 `.md` 均出现在侧边栏，且被 `docs/intro/dependency-map.md` 收录（无孤儿专题）
+- **AND** 每个专题配套一份同名 `.cards.md` 间隔复习闪卡
+
+#### Scenario: 首批 13 专题必含项不减
+
+- **WHEN** 检查首批 13 个专题
+- **THEN** 每个专题仍满足其在本规范中定义的关键知识点必含项清单
 
 ### Requirement: intro 专题内容完整
 
@@ -130,15 +137,6 @@
 - **WHEN** 打开 release-strategy 内容
 - **THEN** 内容至少包含：六大发布策略正面对比（Recreate、RollingUpdate、BlueGreen、Canary、A-B、Shadow，附停机、回滚、基础设施、场景多维表）、K8s 原生五关键字段（`maxSurge`/`maxUnavailable`/`minReadySeconds`/`progressDeadlineSeconds`/`revisionHistoryLimit`）与 `kubectl rollout undo/history/status`、Canary 三层次（副本比例/Ingress annotation/Service Mesh 权重）、Istio VirtualService+DestinationRule 与 Nginx-Ingress canary annotation（weight/header/cookie）完整清单、Argo Rollouts / Flagger / Kruise Rollout 三工具对比、Argo Rollouts + AnalysisTemplate（Prometheus PromQL 成功率）示例、A-B 与 Canary 的差别（技术 vs 业务、随机 vs 特征、观察期长短、成功指标、失败动作）、Shadow / Traffic Mirroring 用法与副作用坑、生产灰度 SOP 八步、常见事故（Endpoints 摘除滞后 502、preStop sleep + 优雅退出、会话粘性、DB Schema 双向兼容、Feature Flag 腐烂、Canary 假阳性、多集群不同步、Envoy xDS 缓存）、游戏后台的独家灰度（分区/UID/Feature Flag/DS preStop）
 
-### Requirement: 内容组织的四段式结构
-
-每个专题的详情内容 MUST 以"是什么 → 为什么这么选 → 踩过什么坑 → 怎么填的"四段式组织，与用户已有的桌面笔记语言对齐。
-
-#### Scenario: 每份专题都有四段
-
-- **WHEN** 用户浏览任一专题内容
-- **THEN** 页面能明确识别到四个段落标题（"是什么"、"为什么这么选"、"踩过什么坑"、"怎么填的"）；即便某段内容较短或标注"待补充"，段落骨架也 MUST 保留
-
 ### Requirement: 内容来源可追溯
 
 每个专题的独立分册末尾 MUST 提供"内容来源"区块，注明抽取自哪份桌面 Markdown 或哪些外部资料，以及抽取时间。
@@ -174,4 +172,54 @@
 
 - **WHEN** 打开 `docs/common/sorting.md`
 - **THEN** 内容至少包含：七大排序（冒泡/选择/插入/希尔/归并/快排/堆排）稳定性×时间×空间对照表、线性排序（计数/基数/桶）适用条件、快排工程化优化（随机基准/三数取中、三路切分、小区间转插入、introsort/pdqsort）、排序选型公式、并查集（按秩合并 + 路径压缩）、Unix I/O 模型（阻塞/非阻塞/多路复用/信号驱动/异步，select→poll→epoll），且以五段式组织、页脚含"内容来源"标注 m9rco/practice 与 lifei6671/interview-go
+
+### Requirement: 内容组织的五段式结构
+
+每个专题的详情内容 MUST 以"场景问题 → 实现方案 → 为什么这么做 → 为什么别的选择不行 → 沉淀结论"五段式组织，并包含"一句话结论"callout 与"记忆口诀"小节，与 `scripts/check-structure.js` 门禁保持一致。
+
+#### Scenario: 每份专题都通过结构门禁
+
+- **WHEN** 运行 `npm run check:structure`
+- **THEN** 除显式豁免的叙事页（如 `self-intro-narrative.md`）外，所有专题页面均命中五个锚点标题（`## 场景问题`、`## 实现方案`、`## 为什么这么做`、`## 为什么别的选择不行`、`## 沉淀结论`）、一句话结论 callout、`### 记忆口诀` 小节
+- **AND** 门禁退出码为 0
+
+### Requirement: 体量失衡专题的治理
+
+超长的 catch-all 或塞入正交主题的专题 MUST 被拆分或瘦身，使单篇聚焦单一可面试叙述。
+
+#### Scenario: reservoir-sampling 回归抽样本身
+
+- **WHEN** 打开 `docs/game-infra/reservoir-sampling.md`
+- **THEN** 其内容聚焦蓄水池抽样（Algorithm R、A-Res 加权、概率证明、在 self-mesh 选 peer 的应用）
+- **AND** 时序异常检测（EWMA/ARIMA/滑窗）已迁出到独立专题 `time-series-anomaly-detection` 并被两侧交叉链接
+
+#### Scenario: ai-eng-practices 去理论化并可导航
+
+- **WHEN** 打开 `docs/ai-llm/ai-eng-practices.md`
+- **THEN** 顶部存在目录/决策树，便于跳读
+- **AND** 已在 `llm-fundamentals`/`agent-dev`/`rag` 中讲过的基础理论以交叉链接替代重复讲解
+- **AND** 文档定位收敛为"企业级 AI 研发工程化落地"，不再重复教授 LLM/Agent 基础
+
+### Requirement: common 域补齐可观测性
+
+`common` 域 MUST 新增 `observability` 专题，收拢此前散落在 10+ 文件的可观测性内容为单一事实源。
+
+#### Scenario: observability 必含项
+
+- **WHEN** 打开 `docs/common/observability.md`
+- **THEN** 内容至少包含：三支柱（Metrics/Logs/Traces）与关系、分布式链路追踪（trace/span、上下文传播、关联 ID、采样策略 head/tail）、指标方法论（RED/USE、P99 与直方图/分位数陷阱）、结构化日志与跨服务关联、OpenTelemetry 标准与主流后端（Prometheus/Jaeger），并给出"线上延迟突刺如何定位"的排障叙述
+
+### Requirement: game-biz 域补齐高频考点
+
+`game-biz` 域 MUST 新增 `anti-cheat` 与 `economy-progression` 两个专题。
+
+#### Scenario: anti-cheat 必含项
+
+- **WHEN** 打开 `docs/game-biz/anti-cheat.md`
+- **THEN** 内容至少包含：服务端权威原则与客户端/服务端信任边界、常见作弊类型（内存修改/加速/自动化/协议重放）与对应检测信号、遥测与异常评分、分布式校验（不逐服务查询的批量/异步校验）、封禁与申诉闭环，并与 `idempotency-design`/`business-proxy` 交叉链接
+
+#### Scenario: economy-progression 必含项
+
+- **WHEN** 打开 `docs/game-biz/economy-progression.md`
+- **THEN** 内容至少包含：软/硬货币与资源回收（sink/source 平衡）、成长曲线与等级/战令、赛季软重置 vs 硬重置、通胀与定价、免费/付费平衡，并与 `gacha`/`activity-framework` 交叉链接
 

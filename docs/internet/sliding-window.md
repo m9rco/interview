@@ -153,6 +153,8 @@ def allow():
 
 综合整理。主要参考方向：RFC 793 / RFC 9293（TCP 规范、滑动窗口、持续计时器）、RFC 1122（SWS 治理、Nagle、Delayed ACK）、RFC 1323/7323（Window Scaling）、RFC 5681（TCP 拥塞控制、慢启动/拥塞避免）、RFC 7540 / RFC 9113（HTTP/2 流控与 WINDOW_UPDATE）、RFC 9000（QUIC 流控 MAX_DATA/MAX_STREAM_DATA）、RFC 9114（HTTP/3）、《TCP/IP Illustrated Vol.1》相关章节。
 
+> 消歧：本篇的"滑动窗口"是 **TCP/HTTP 流量控制**机制。算法题里的[双指针与滑动窗口](../algo/two-pointers-sliding-window.md)是数组/字符串上的枚举技巧，同名但不同概念。
+
 ## 自测：合上资料能说清楚吗？
 
 发送方某一时刻究竟能往网络里灌多少字节？这个量由什么决定？

@@ -194,6 +194,8 @@ struct BloomFilter {
 
 综合整理：Google Maglev / Jump Consistent Hash 论文、Redis / RocksDB 公开资料、《数据结构与算法分析》。代码为教学示意，生产请用成熟库（哈希用 xxhash/murmur）。
 
+> 分工：本篇聚焦**后台/分布式高频算法**（一致性哈希各变体、布隆过滤器、LSM 等落地取舍）。树家族/堆/跳表等**数据结构基础**详见 [数据结构](./data-structures.md)，本篇不重复展开其基本定义。
+
 ## 自测：合上资料能说清楚吗？
 
 1. 为什么一致性哈希扩缩容只迁移 1/N 的 key？取模分片相比之下差在哪？

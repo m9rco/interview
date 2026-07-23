@@ -84,14 +84,40 @@ title: 学习路径推荐
 
 ---
 
+## 路径 D：进阶游戏基础架构
+
+**目标岗位**：资深游戏基础架构、平台/中间件、SRE 方向（在路径 A 之上的深水区）
+**预计时长**：约 20 天（40 小时）
+**前置**：先完成路径 A（本路径默认你已掌握 A 的分布式一致性与服务网格基础）
+
+1. `access-gateway` — 接入网关与长连接（2h）
+2. `message-bus` — 消息总线（2h）
+3. `cni-plugins` — CNI 网络插件三流派（2h）
+4. `ebpf` — eBPF 数据面（3h）
+5. `mesh-central-vs-decentral` — 中心化 vs 去中心化网格（2h）
+6. `mesh-istio-cilium` — Istio vs Cilium 网格落地（2h）
+7. `config-hot-reload` — 配置热更新（1.5h）
+8. `token-leaky-bucket` — 令牌桶与漏桶算法详解（2h）
+9. `seckill` — 秒杀/抢购系统（2h）
+10. `release-strategy` — 灰度/金丝雀/蓝绿发布（3h）
+11. `cpp-coroutine` — C++ 协程（2.5h）
+12. `llvm-compile` — LLVM 编译流程（2h）
+13. `sanitizers` — Sanitizer 排查内存/并发问题（1.5h）
+
+::: tip 复习重点
+路径 D 核心：**网格数据面（eBPF/Sidecar 取舍）+ 发布策略 SOP + 高并发承载（秒杀/令牌桶）**。这是把路径 A 的"能讲清演进"升级到"能讲清取舍与事故"的深水区，面高级/资深岗必备。
+:::
+
+---
+
 ## 路径对比速览
 
-| | 路径 A（游戏基础架构） | 路径 B（互联网后台） | 路径 C（AI 工程） |
-|---|---|---|---|
-| 天数 | ~21 天 | ~18 天 | ~16 天 |
-| 核心门槛 | 分布式 + 服务网格 | MySQL + 分布式事务 | Transformer + RAG |
-| 最难专题 | `self-mesh-k8s` | `distributed-transaction` | `llm-inference-optimization` |
-| 共同前置 | `data-structures` + `concurrency` + `redis` | ← 同 | ← 同 |
+| | 路径 A（游戏基础架构） | 路径 B（互联网后台） | 路径 C（AI 工程） | 路径 D（进阶游戏基础架构） |
+|---|---|---|---|---|
+| 天数 | ~21 天 | ~18 天 | ~16 天 | ~20 天 |
+| 核心门槛 | 分布式 + 服务网格 | MySQL + 分布式事务 | Transformer + RAG | 网格数据面 + 发布策略 + 高并发承载 |
+| 最难专题 | `self-mesh-k8s` | `distributed-transaction` | `llm-inference-optimization` | `ebpf` |
+| 共同前置 | `data-structures` + `concurrency` + `redis` | ← 同 | ← 同 | 路径 A 全部 |
 
 ---
 

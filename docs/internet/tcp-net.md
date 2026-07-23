@@ -220,3 +220,5 @@ Reactor 和 Proactor 模式的核心区别是什么？
 ## 内容来源
 
 迁移自 guide/theme-tcp-net（综合整理）。原始参考：《TCP/IP 详解 卷一》、Linux Programming Interface、Beej Guide、Netty 源码（2026-07）。
+
+> 相关专题：本篇聚焦 **TCP 协议本身**（握手挥手、拥塞/流控、粘包）；**epoll/IO 多路复用**详见 [LVS + epoll](./lvs-epoll.md)，**零拷贝**详见 [零拷贝](../common/os-zerocopy.md)。

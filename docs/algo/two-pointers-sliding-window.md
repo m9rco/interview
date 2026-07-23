@@ -179,6 +179,8 @@ std::string minWindow(const std::string& s, const std::string& t) {
 
 综合整理自高频面试题型（LeetCode 双指针 / 滑动窗口标签）与《算法》第 4 版；代码为教学示意的 C++ 实现。
 
+> 消歧：本篇的"滑动窗口"是**算法技巧**（在数组/字符串上移动左右边界）。网络里的[滑动窗口](../internet/sliding-window.md)是 **TCP/HTTP 流量控制**，同名但不同概念；单调栈相关的窗口最值见[单调栈与单调队列](./monotonic-stack.md)。
+
 ## 自测：合上资料能说清楚吗？
 
 1. 双指针为什么能把 O(n²) 的枚举压成 O(n)？它依赖什么前提？

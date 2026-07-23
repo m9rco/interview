@@ -25,6 +25,13 @@ graph TD
   GRAPH[graph]:::algo
   BT[backtracking]:::algo
   BA[backend-algorithms]:::algo
+  GREEDY[greedy]:::algo
+  BITM[bit-manipulation]:::algo
+  MONO[monotonic-stack]:::algo
+  STRM[string-matching]:::algo
+  INTV[intervals]:::algo
+  MATH[math-number-theory]:::algo
+  UF[union-find]:::algo
 
   DS --> BS
   DS --> SORT
@@ -34,6 +41,13 @@ graph TD
   DS --> TP
   GRAPH --> BA
   DP --> BA
+  DP --> GREEDY
+  DS --> BITM
+  TP --> MONO
+  DS --> STRM
+  SORT --> INTV
+  DS --> MATH
+  GRAPH --> UF
 
   %% ── common（通用后台基础）────────────────────────────────
   CONC[concurrency]:::common
@@ -49,6 +63,8 @@ graph TD
   CPP20[cpp20-gotchas]:::common
   GO[go-gotchas]:::common
   RUST[rust-gotchas]:::common
+  OBS[observability]:::common
+  TSAD[time-series-anomaly-detection]:::common
 
   DS --> CONC
   CONC --> GC
@@ -62,6 +78,8 @@ graph TD
   ZERO --> CONC
   CPP11 --> CPP20
   CPP11 --> CONC
+  HTTP --> OBS
+  OBS --> TSAD
 
   %% ── internet（互联网后台）────────────────────────────────
   TCP[tcp-net]:::internet
@@ -142,6 +160,8 @@ graph TD
   IDEM[idempotency-design]:::gameBiz
   RROOM[redis-room-recommend]:::gameBiz
   GVI[game-vs-internet]:::gameBiz
+  AC[anti-cheat]:::gameBiz
+  ECON[economy-progression]:::gameBiz
 
   HTTP --> BP
   DT --> BP
@@ -154,6 +174,10 @@ graph TD
   RATE --> ACT
   DM --> ACT
   CONC --> GVI
+  IDEM --> AC
+  BP --> AC
+  GACHA --> ECON
+  ACT --> ECON
 
   %% ── ai-llm（AI/大模型）──────────────────────────────────
   LLM[llm-fundamentals]:::aiLlm
@@ -164,6 +188,10 @@ graph TD
   RAGS[rag-storage-cleanup]:::aiLlm
   AGENT[agent-dev]:::aiLlm
   AIENG[ai-eng-practices]:::aiLlm
+  SEC[llm-security]:::aiLlm
+  EVAL[llm-evaluation]:::aiLlm
+  COST[llm-cost-latency]:::aiLlm
+  FT[fine-tuning]:::aiLlm
 
   DS --> LLM
   LLM --> LLMOPT
@@ -176,6 +204,12 @@ graph TD
   RATE --> AGENT
   AGENT --> AIENG
   LLMOPT --> AIENG
+  AGENT --> SEC
+  RAG --> SEC
+  RAG --> EVAL
+  LLMOPT --> COST
+  LLM --> FT
+  LLMOPT --> FT
 
   %% ── click 跳转 ───────────────────────────────────────────
   click DS "../algo/data-structures"
@@ -186,6 +220,13 @@ graph TD
   click GRAPH "../algo/graph"
   click BT "../algo/backtracking"
   click BA "../algo/backend-algorithms"
+  click GREEDY "../algo/greedy"
+  click BITM "../algo/bit-manipulation"
+  click MONO "../algo/monotonic-stack"
+  click STRM "../algo/string-matching"
+  click INTV "../algo/intervals"
+  click MATH "../algo/math-number-theory"
+  click UF "../algo/union-find"
 
   click CONC "../common/concurrency"
   click HTTP "../common/http-tls-rpc"
@@ -200,6 +241,8 @@ graph TD
   click CPP20 "../common/cpp20-gotchas"
   click GO "../common/go-gotchas"
   click RUST "../common/rust-gotchas"
+  click OBS "../common/observability"
+  click TSAD "../common/time-series-anomaly-detection"
 
   click TCP "../internet/tcp-net"
   click LVS "../internet/lvs-epoll"
@@ -245,6 +288,8 @@ graph TD
   click IDEM "../game-biz/idempotency-design"
   click RROOM "../game-biz/redis-room-recommend"
   click GVI "../game-biz/game-vs-internet"
+  click AC "../game-biz/anti-cheat"
+  click ECON "../game-biz/economy-progression"
 
   click LLM "../ai-llm/llm-fundamentals"
   click LLMOPT "../ai-llm/llm-inference-optimization"
@@ -254,6 +299,10 @@ graph TD
   click RAGS "../ai-llm/rag-storage-cleanup"
   click AGENT "../ai-llm/agent-dev"
   click AIENG "../ai-llm/ai-eng-practices"
+  click SEC "../ai-llm/llm-security"
+  click EVAL "../ai-llm/llm-evaluation"
+  click COST "../ai-llm/llm-cost-latency"
+  click FT "../ai-llm/fine-tuning"
 ```
 
 ---

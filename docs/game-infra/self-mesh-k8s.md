@@ -13,7 +13,7 @@ title: 自研 Mesh 服务网格 × K8s 部署
 ## 场景问题
 
 ::: warning ⚠️ 校正清单（面试必带）
-1. **Gossip 是设计概念，未落地**：代码是"全连接网格 + 单跳全量广播"。无 W、无感染轮次、无随机邻居、收方不转发。
+1. **是 gossip 的退化特例，不是教科书 SWIM**：代码是"全连接网格 + 单跳全量广播"，fanout 拉满、无感染轮次、无随机邻居、收方不转发。准确说法是"gossip 家族的退化变体"，别简单说"未落地/不是 gossip"。
 2. **节点发现**：自研 Mesh 的 C 代码只读 `host.txt`；K8s API / 服务发现是运维面板(Go) 的外部链路，负责把 IP 写进 host.txt。
 3. **本机通信**：本机 mesh 客户端(msc) 接业务是 **消息总线共享内存 channel**，**不是 UDS**。
 4. **跨 DC "选 2 个中转"**：代码只见"直连优先 (host_cache)"，独立实现未见，**存疑**。
@@ -56,12 +56,12 @@ flowchart LR
 
 ### Gossip 的真相：概念 vs 代码
 
-**代码里没有任何 gossip/infect 标识符**（grep 命中 0）：
-- 组包 `make_mesh_heartbeat_package`：只装本机 `local_bus` 实例，**不装从别人学到的实例** → 决定不可能是 gossip
+**代码里没有任何 gossip/infect 标识符**（grep 命中 0），关键在于**收方不转发、组包不装别人的实例**：
+- 组包 `make_mesh_heartbeat_package`：只装本机 `local_bus` 实例，**不装从别人学到的实例**
 - 广播 `mesh_heartbeat`：遍历 `hash_cache`（所有连接）逐个发；内部计数就叫 `broadcasts++`
 - 收包 `_mesh_heartbeat`：对每条实例只 `svr_heartbeat` 更新本地路由表，循环结束就 return，**无任何 re-broadcast**
 
-> **自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数**；gossip 是用 O(W) 连接换 O(log N) 跳数——**取舍方向恰好相反**。
+> **口径统一（两层要分清）**：从**算法家族**看，它属于 **gossip 的一种退化特例**——把 fanout 拉满成"全连接"、砍掉 incarnation 与间接探测；从**教科书定义**看，它**不是完整 SWIM**（无多跳感染、无反熵、收方不转发）。所以准确表述是"**gossip 家族的退化变体，而非教科书 SWIM**"，不要简单说成"不是 gossip"。取舍方向：**自研 Mesh 用 O(N) 连接换 O(1) 收敛跳数**，教科书 gossip 用 O(W) 连接换 O(log N) 跳数——方向相反。nzmesh 相对 SWIM 砍了哪些组件、代价如何，逐行代码详见 [Raft & Gossip · nzmesh 实战](./raft-gossip.md)。
 
 ## 实现方案
 
@@ -253,7 +253,7 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 - 自研 Mesh 的本质是**用 O(N) 全连接换 O(1) 单跳收敛**，与 gossip 的取舍方向相反；这套取舍在**万级节点、有状态、点对点直连**的游戏后台场景下成立。
 - 性能基石是**数字 ID**：让 Jump Consistent Hash、calc_connect、水库抽样都能 O(1)/O(log n)、0 额外内存跑起来。
 - 部署上用 **DaemonSet + hostNetwork** 跳出 K8s Overlay，规避网络组件频繁异常；节点发现落在 **运维面板** 而非 mesh C 代码本身，靠 **host.txt 与 K8s API 交叉对账** 保证一致性。
-- 面试记住四条校正：**Gossip 未落地、节点发现在面板、本机通信走消息总线共享内存、跨 DC 只见直连优先**。
+- 面试记住四条校正：**是 gossip 退化特例（非教科书 SWIM）、节点发现在面板、本机通信走消息总线共享内存、跨 DC 只见直连优先**。
 
 ### 记忆口诀
 
@@ -272,7 +272,7 @@ msc 启动要快速感知附近 mesh。下行心跳 `make_msc_heartbeat_package`
 
 <details><summary>参考答案</summary>
 
-**不是**。代码是**全连接网格 + 单跳全量广播**：收包只更新本地路由表、**不再转发**，组包只装本机实例。Gossip 用 **O(W) 连接换 O(log N) 跳数**；自研 Mesh 用 **O(N) 连接换 O(1) 收敛跳数**，**取舍方向恰好相反**。
+**是 gossip 家族的退化特例，但不是教科书 SWIM**。代码是**全连接网格 + 单跳全量广播**：收包只更新本地路由表、**不再转发**，组包只装本机实例，且砍掉了 incarnation/间接探测。Gossip 用 **O(W) 连接换 O(log N) 跳数**；自研 Mesh 把 fanout 拉满，用 **O(N) 连接换 O(1) 收敛跳数**，**取舍方向恰好相反**。（逐行代码与砍掉的 SWIM 组件见 [Raft & Gossip · nzmesh 实战](./raft-gossip.md)）
 
 </details>
 

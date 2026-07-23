@@ -178,6 +178,8 @@ stateDiagram-v2
 
 综合整理。主要参考方向：Linux Virtual Server 官方文档（IPVS、NAT/DR/TUN 模式与 ipvsadm）、`ipvsadm(8)` 手册、Keepalived 官方文档与 VRRP（RFC 3768/5798）、Linux 内核 `epoll(7)`/`epoll_ctl(2)`/`epoll_wait(2)` man page 与内核 `fs/eventpoll.c` 实现（红黑树 + rdllist）、C10K/C10M 问题综述、Nginx `SO_REUSEPORT`/`EPOLLEXCLUSIVE` 惊群处理文档。
 
+> 相关专题：本篇是 **epoll/IO 多路复用**（LT/ET、惊群）的详解归属；**零拷贝**（sendfile/splice/mmap）详见 [零拷贝](../common/os-zerocopy.md)，**TCP 握手/拥塞/流控**详见 [TCP 网络](./tcp-net.md)。
+
 ## 自测：合上资料能说清楚吗？
 
 DR 模式为什么比 NAT 快？它对 Real Server 有什么特殊要求？
