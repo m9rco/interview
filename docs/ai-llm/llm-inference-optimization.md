@@ -68,6 +68,8 @@ KV_bytes ≈ 2 (K和V) × layers × seq_len × n_kv_heads × head_dim × bytes_p
 
 静态 batching 要等一批里最慢的序列结束才能收下一批 → GPU 空转。**Continuous / In-flight Batching**：谁生成完 EOS 就立刻替换成排队中的新请求，**迭代级动态拼批**，GPU 始终打满。vLLM / TGI / TensorRT-LLM 的核心吞吐来源。
 
+> **打个比方**：Continuous Batching + PagedAttention 就像**拼车 + 分页停车场**——一趟车凑几个顺路的乘客（迭代级动态拼批，谁下车立刻上新客，GPU 不空转），车里每个人的行李（KV Cache）不再各占一格连续车厢，而是**按小块随手塞进分页格位**，逻辑连续、物理分散、几乎不留死角。**投机解码**再加一位小助手：便宜小模型**先猜 k 个 token**，大模型只干"验草稿"一次并行核验，猜中白赚、猜错回退。**类比失效边界**：拼车省钱的前提是"路线相似"——一旦请求的上下文长度极端不均（少数几万 token、多数几百），长请求会拖住短请求，收益被 padding 和等待吃掉；投机解码只对"分布容易猜准"的 prompt 有加速，冷门 prompt 里小模型猜不中，反而多做了一次核验、比原生 decode 还慢。
+
 ### 量化：用精度换显存和带宽
 
 把权重（有时含激活、KV）从 fp16 降到 int8/int4，**搬得少 → decode 更快，占得少 → 单卡塞更大模型**。

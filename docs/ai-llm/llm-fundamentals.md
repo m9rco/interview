@@ -123,6 +123,8 @@ def scaled_dot_product_attention(Q, K, V, causal=True):
     return weights @ V                        # 对 Value 加权求和
 ```
 
+> **打个比方**：自回归生成就像**接龙作文**——每写一个字之前，都要**把前面所有字从头扫一遍**再决定下一个（Self-Attention 全上下文打分），因果 mask 又规定绝对不许偷看后面还没写的字（`-∞` 屏蔽上三角）。**KV Cache** 相当于把"已经读过的段落"提前记好笔记，下一次接龙只算新字的问题，不再重扫一遍。**类比失效边界**：真实接龙可以停下来"这句不好"再改一遍，自回归却是**一路向下、无法回退**——早期一个错 token 会污染后面全部生成，只能**从错处重开**；KV Cache 又是显存换算力，超长上下文一撞显存红线要么截断、要么代价陡增，绝非"越长越聪明"。
+
 一个完整的 Decoder Block = **Masked Multi-Head Attention → 残差 + LayerNorm → FFN(前馈) → 残差 + LayerNorm**，堆叠 N 层。残差连接解决深层网络梯度问题，LayerNorm 稳定训练（现代模型多用 Pre-LN + RMSNorm）。
 
 ```mermaid
