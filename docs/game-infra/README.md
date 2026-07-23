@@ -16,7 +16,7 @@ title: 游戏基础架构与工具
 - [分布式游戏存储（分布式 KV）](/game-infra/distributed-kv.md) · [数据迁移](/game-infra/stateful-migration.md) · [数据恢复](/game-infra/stateful-recovery.md) · [配置热刷新](/game-infra/config-hot-reload.md)
 
 **算法与协程**
-- [一致性哈希三算法](/game-infra/consistent-hash-impl.md) · [蓄水池抽样](/game-infra/reservoir-sampling.md) · [C++ 协程](/game-infra/cpp-coroutine.md) · [Raft 与 Gossip](/game-infra/raft-gossip.md)
+- [一致性哈希四算法](/game-infra/consistent-hash-impl.md) · [蓄水池抽样](/game-infra/reservoir-sampling.md) · [C++ 协程](/game-infra/cpp-coroutine.md) · [Raft 与 Gossip](/game-infra/raft-gossip.md)
 
 **流量与承载**
 - [秒杀承载](/game-infra/seckill.md) · [令牌桶与漏桶](/game-infra/token-leaky-bucket.md) · [限流与熔断](/game-infra/ratelimit-circuitbreak.md)
