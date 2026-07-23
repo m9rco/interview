@@ -160,6 +160,94 @@ loop probeInterval:
 Gossip 的收敛是**概率性 O(log N) 轮**而非确定性：fanout=3、几千节点时，几秒内几乎必然全收敛。SWIM 的"间接探测 + 自我澄清（incarnation 反驳）"是降低误判的关键——避免一次网络抖动就把好节点判死。Serf、Redis Cluster、Cassandra、HashiCorp Consul 的成员层都是这套。
 :::
 
+### Gossip 实战：自研网格 nzmesh 的实现（与教科书 SWIM 的差异）
+
+上面是教科书 SWIM。实际落地时，可信内网 + 万级节点的场景往往用一个**更简化的变体**就够——我自研网格 nzmesh 的成员层就是"**心跳全连接广播 + Last-Write-Wins**"，刻意砍掉了 incarnation、间接探测、反熵这些 SWIM 组件。下面是它的实现骨架（C）。
+
+**① 成员节点结构：没有版本号，只有时间戳 + 状态枚举**
+
+```c
+// nzmesh/nzmesh.h:111
+typedef struct STBusIP {
+    uint64_t last_data;    // 最后一次收到该节点心跳的时间戳 —— 超时判定的唯一依据
+    uint64_t last_change;  // 最后一次状态变更时间
+    uint32_t tbus_addr;    // 节点唯一 ID（编码了 zone/route/mod/instance）
+    uint32_t ip; int32_t port;
+    uint8_t  status;       // BUS_STATUS_NORMAL / DISABLE / TIMEOUT / UNREACHABLE
+    SSvrHeartBeat info;    // 心跳信息体（分组、路由类型、backup 等）
+    // ...
+} STBusIP;
+// 注意：结构体里没有 incarnation / version —— 冲突不靠逻辑时钟，靠"谁来得晚"
+```
+
+**② 传播：5s 定时器只置标志位，真正发送在主循环里做全连接广播**
+
+```c
+// nzmesh/nzmesh_main.c:930 —— 定时器不做重活，只打标记
+void __tmr_nzmesh_heartbeat(void *ctx, uint64_t interval) {
+    ((SNZMeshContext *) ctx)->isHeartBeat = TRUE;
+}
+// nzmesh_main.c:979 注册：每 5 秒一次
+tmr_insert2(mesh->tmr, __tmr_nzmesh_heartbeat, mesh, 5 * 1000, -1);
+
+// 主循环消费标志（nzmesh_main.c:1020）
+if (mesh->isHeartBeat) { mesh->isHeartBeat = FALSE; nzmesh_heartbeat(mesh); }
+
+// nzmesh_main.c:873 —— 关键：不是随机选 fanout，而是遍历所有已建连接全量广播
+void nzmesh_heartbeat(SNZMeshContext *mesh) {
+    SRouteProtocol *mesh_pkg = make_mesh_heartbeat_package(mesh, now); // 打包本地全量实例
+    hash_rewind(mesh->hash_cache);
+    while ((cache = hash_next(mesh->hash_cache))) {   // 遍历每一条 TCP 连接
+        SRouteProtocol *pkg = cache->mn->islocal ? msc_pkg : mesh_pkg;
+        // memcpy 进该连接的发送缓冲、加入发送队列（push-only，无 pull / 无反熵）
+    }
+}
+```
+
+**③ merge：无 incarnation 比较，Last-Write-Wins + 状态变更即时再广播**
+
+```c
+// nzmesh/nzmesh_net.c:819 —— 收到对端心跳，按 tbus_addr 找到本地记录后
+if (tip->tbus_addr == (uint32_t)header->src_servbusip) {
+    uint8_t old_status = tip->status;
+    // 没有版本号可比：直接用"收到的此刻"覆盖，谁来得晚谁说了算
+    tip->status    = status;
+    tip->last_data = now;
+    // 本地实例状态一变，立刻置位触发下一轮广播（不等下一个 5s），加速收敛
+    if (header->flag == ECONN_HEARTBEAT_TOPXY && old_status != tip->status)
+        mesh->isHeartBeat = TRUE;
+    if (old_status != tip->status)
+        route_update_active_list(mesh, route, FALSE, TRUE); // 立即刷新路由活跃表
+}
+```
+
+**④ 故障探测：纯心跳超时，无 ping-req 间接探测、无 incarnation 自我澄清**
+
+```c
+// nzmesh/nzmesh_net.c:338 —— 转发/巡检时发现 now - last_data 超阈值即判死
+if (now/1000 - tip->last_data > heartbeat_timeout) {   // 阈值 HeartBeatTimeOut=9000ms
+    tip->status = BUS_STATUS_TIMEOUT;                  // NORMAL → TIMEOUT
+    if (dl_find(mesh->local_tbus, tip, cmpTBusMap))     // 若是本机实例超时
+        mesh->isHeartBeat = TRUE;                       // 立即广播，让别人尽快知道
+}
+// 恢复：TIMEOUT/DISABLE 的实例再次收到心跳 → 回到 NORMAL（nzmesh_net.c:828）
+```
+
+nzmesh 相对教科书 SWIM 的取舍一览：
+
+| 维度 | 教科书 SWIM | nzmesh 实现 | 代价/理由 |
+|---|---|---|---|
+| peer 选择 | 随机 fanout（如 3） | **全连接广播**（遍历所有 TCP 连接） | 收敛快、实现简单；代价是连接数/流量随规模上升 |
+| 交换方式 | push-pull 反熵 | **仅 push 全量本地实例** | 无需拉取逻辑；靠全连接广播保证覆盖，无定期反熵 |
+| 冲突裁决 | incarnation 版本号 | **Last-Write-Wins（比 last_data 时刻）** | 无逻辑时钟，极端分区/乱序下可能误判，可信内网可接受 |
+| 故障探测 | ping + 间接 ping-req | **纯心跳超时（9s）** | 少一层探测；靠"本机超时即时广播"压低发现延迟 |
+| 自我澄清 | 被误判者广播更高 incarnation 反驳 | **无**（下一轮心跳自然恢复 TIMEOUT→NORMAL） | 无 refute 机制；恢复靠对端重新收到心跳 |
+| 收敛加速 | — | **状态变更立即触发广播**，不等下个周期 | 用"事件驱动补一刀"弥补固定 5s 周期的延迟 |
+
+::: warning
+这是一个**"强一致优先 + 可信内网"取向的 gossip 变体**，不是完整 SWIM。它用"全连接广播 + 状态变更即时补发"换取实现简单和快速收敛，适合**万级、网络可信、业务本身能容错**的自研网格；但因为没有 incarnation 自我澄清和间接探测，在**超大规模自组织网络或高分区抖动**环境下会退化（一次抖动可能误判、连接数随节点数上升）。面试里能说清"我砍了哪些 SWIM 组件、为什么砍、代价是什么"，比背全套 SWIM 更有说服力。
+:::
+
 ## 为什么这么做
 
 **CP vs AP，用 CAP 视角看两者定位：**
@@ -197,6 +285,7 @@ Gossip 的收敛是**概率性 O(log N) 轮**而非确定性：fanout=3、几千
 **Raft(CP)**：term 任期 / 多数派提交 / 单一 Leader / 元数据·etcd
 **Gossip(AP)**：随机选 peer / O(log N) 收敛 / 无单点 / 成员发现·Serf
 **降误判**：SWIM 间接探测 / incarnation 自我澄清
+**nzmesh 变体**：全连接广播 / LWW（比 last_data）/ 纯心跳超时 9s / 状态变更即时补发（砍掉 incarnation·间接探测·反熵）
 **分界**：读旧值出错→Raft；允许短暂不一致要抗故障→Gossip
 
 ## 内容来源
@@ -244,3 +333,12 @@ SWIM 的"间接探测"和"incarnation 自我澄清"分别解决什么问题？
 **间接探测**：直接 ping 无 ack 时，请 k 个其他成员帮 ping，排除**探测方自身网络抖动**导致误判。**incarnation 自我澄清**：被误标 suspect 的节点若还活着，广播**更高 incarnation 的 alive** 反驳，避免一次抖动把好节点判死。
 
 </details>
+
+自研网格 nzmesh 的 gossip 相比教科书 SWIM 砍掉了哪些组件？为什么可接受，代价是什么？
+
+<details><summary>参考答案</summary>
+
+nzmesh 用"**心跳全连接广播 + Last-Write-Wins**"的简化变体：**砍掉** incarnation 版本号（冲突只比 `last_data` 时刻，谁晚谁赢）、间接探测 ping-req（纯心跳超时 9s 判死）、push-pull 反熵（仅 push 全量本地实例）、随机 fanout（改为遍历所有 TCP 连接**全量广播**）。**可接受**是因为目标场景是**可信内网 + 万级节点 + 业务本身能容错**，且用"**状态变更即时触发广播**（不等下个 5s 周期）"弥补收敛延迟。**代价**：连接数/流量随规模上升、无自我澄清 → 高分区抖动下一次网络抖动可能误判好节点。
+
+</details>
+

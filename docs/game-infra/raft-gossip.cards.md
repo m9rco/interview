@@ -7,6 +7,7 @@
 **Raft(CP)**：term 任期 / 多数派提交 / 单一 Leader / 元数据·etcd
 **Gossip(AP)**：随机选 peer / O(log N) 收敛 / 无单点 / 成员发现·Serf
 **降误判**：SWIM 间接探测 / incarnation 自我澄清
+**nzmesh 变体**：全连接广播 / LWW（比 last_data）/ 纯心跳超时 9s / 状态变更即时补发（砍掉 incarnation·间接探测·反熵）
 **分界**：读旧值出错→Raft；允许短暂不一致要抗故障→Gossip
 
 ## Card 1
@@ -38,3 +39,9 @@
 **Q**: SWIM 的"间接探测"和"incarnation 自我澄清"分别解决什么问题？
 
 **A**: 间接探测：直接 ping 无 ack 时，请 k 个其他成员帮 ping，排除探测方自身网络抖动导致误判。incarnation 自我澄清：被误标 suspect 的节点若还活着，广播更高 incarnation 的 alive 反驳，避免一次抖动把好节点判死。
+
+## Card 6
+
+**Q**: 自研网格 nzmesh 的 gossip 相比教科书 SWIM 砍掉了哪些组件？为什么可接受，代价是什么？
+
+**A**: nzmesh 用"心跳全连接广播 + Last-Write-Wins"的简化变体：砍掉 incarnation 版本号（冲突只比 `last_data` 时刻，谁晚谁赢）、间接探测 ping-req（纯心跳超时 9s 判死）、push-pull 反熵（仅 push 全量本地实例）、随机 fanout（改为遍历所有 TCP 连接全量广播）。可接受是因为目标场景是可信内网 + 万级节点 + 业务本身能容错，且用"状态变更即时触发广播（不等下个 5s 周期）"弥补收敛延迟。代价：连接数/流量随规模上升、无自我澄清 → 高分区抖动下一次网络抖动可能误判好节点。
